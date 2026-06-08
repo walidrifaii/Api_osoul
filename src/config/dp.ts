@@ -3,8 +3,10 @@ import dotenv from "dotenv";
 dotenv.config();
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
+  // Internal Docker/EazyPanel Postgres does not support SSL.
+  // Set DATABASE_SSL=true only for external cloud DBs that require it (e.g. Render).
   ssl:
-    process.env.NODE_ENV === "production" || process.env.NODE_ENV === "Test"
+    process.env.DATABASE_SSL === "true"
       ? { rejectUnauthorized: false }
       : false,
 });
