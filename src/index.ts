@@ -41,9 +41,12 @@ app.use(
   })
 );
 
-// app test
 app.get("/", (_req, res) => {
   res.json({ message: "Server is running" });
+});
+
+app.get("/health", (_req, res) => {
+  res.status(200).json({ status: "ok" });
 });
 
 // Public routes (no auth required)
@@ -58,20 +61,18 @@ app.use("/", protect, protectedPostsRouter);
 app.use("/", protect, protectedPostDetRouter);
 app.use("/", protect, protectedAdminRouter);
 
-// Server
-function startServer(port: number) {
-  const server = app.listen(port, () => {
-    console.log(`Server is running on port ${port}`);
-  });
+const HOST = "0.0.0.0";
 
-  server.on("error", (err: any) => {
-    if (err.code === "EADDRINUSE") {
-      console.log(`Port ${port} is in use, trying port ${port + 1}...`);
-      startServer(port + 1);
-    } else {
-      console.error("Server error:", err);
-    }
-  });
-}
+const server = app.listen(Number(PORT), HOST, () => {
+  console.log(`Server is running on ${HOST}:${PORT}`);
+});
 
-startServer(Number(PORT));
+server.on("error", (err: NodeJS.ErrnoException) => {
+  console.error("Server error:", err);
+  process.exit(1);
+});
+
+process.on("SIGTERM", () => {
+  console.log("SIGTERM received, shutting down gracefully");
+  server.close(() => process.exit(0));
+});
