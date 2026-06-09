@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import dotenv from "dotenv";
+import convert from "heic-convert";
 
 dotenv.config();
 
@@ -63,6 +64,28 @@ function uniqueFilename(extension: string): string {
   return `upload_${Date.now()}_${crypto.randomBytes(4).toString("hex")}.${extension}`;
 }
 
+function isHeicBuffer(buffer: Buffer): boolean {
+  if (buffer.length < 12 || buffer.toString("ascii", 4, 8) !== "ftyp") {
+    return false;
+  }
+  const brand = buffer.toString("ascii", 8, 12).toLowerCase();
+  return (
+    brand.includes("heic") ||
+    brand.includes("heif") ||
+    brand === "mif1" ||
+    brand === "msf1"
+  );
+}
+
+async function convertHeicToJpeg(buffer: Buffer): Promise<Buffer> {
+  const output = await convert({
+    buffer,
+    format: "JPEG",
+    quality: 0.9,
+  });
+  return Buffer.from(new Uint8Array(output));
+}
+
 function detectImageMime(buffer: Buffer): DetectedImage {
   if (
     buffer.length >= 3 &&
@@ -97,15 +120,6 @@ function detectImageMime(buffer: Buffer): DetectedImage {
     buffer.toString("ascii", 8, 12) === "WEBP"
   ) {
     return { mimeType: "image/webp", extension: "webp" };
-  }
-
-  if (buffer.length >= 12 && buffer.toString("ascii", 4, 8) === "ftyp") {
-    const brand = buffer.toString("ascii", 8, 12).toLowerCase();
-    if (brand.includes("heic") || brand.includes("heif") || brand === "mif1") {
-      throw new Error(
-        "HEIC images are not supported. Please use JPG or PNG photos."
-      );
-    }
   }
 
   return { mimeType: "image/jpeg", extension: "jpg" };
@@ -153,10 +167,26 @@ export async function uploadImageBuffer(
 export async function uploadBase64Image(image: string): Promise<UploadedImage> {
   const dataUrlMatch = image.match(/^data:(image\/[\w+.-]+);base64,(.+)$/i);
   const base64 = dataUrlMatch ? dataUrlMatch[2] : image;
-  const buffer = Buffer.from(base64, "base64");
+  let buffer = Buffer.from(base64, "base64");
 
   if (buffer.length === 0) {
     throw new Error("Empty image data received");
+  }
+
+  const declaredMime = dataUrlMatch?.[1]?.toLowerCase();
+  const isHeic =
+    isHeicBuffer(buffer) ||
+    declaredMime === "image/heic" ||
+    declaredMime === "image/heif";
+
+  if (isHeic) {
+    try {
+      buffer = await convertHeicToJpeg(buffer);
+    } catch {
+      throw new Error(
+        "Failed to convert HEIC image. Please use JPG or PNG photos."
+      );
+    }
   }
 
   const detected = detectImageMime(buffer);
