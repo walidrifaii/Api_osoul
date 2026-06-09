@@ -7,7 +7,6 @@ const UPLOAD_URL =
 const IMAGE_BASE_URL =
   process.env.IMAGE_BASE_URL || "https://st79068.ispot.cc";
 const IMAGE_PATH = process.env.IMAGE_PATH || "/ousoul/images";
-const UPLOAD_FOLDER = IMAGE_PATH.replace(/^\/|\/$/g, "");
 
 type UploadResponse = {
   success?: boolean;
@@ -20,14 +19,37 @@ export type UploadedImage = {
   path: string;
 };
 
+function encodePathSegment(segment: string): string {
+  try {
+    return encodeURIComponent(decodeURIComponent(segment));
+  } catch {
+    return encodeURIComponent(segment);
+  }
+}
+
 function buildImageUrl(filename: string): string {
   const base = IMAGE_BASE_URL.replace(/\/$/, "");
   const folder = IMAGE_PATH.replace(/^\/|\/$/g, "");
-  return `${base}/${folder}/${filename}`;
+  return `${base}/${folder}/${encodePathSegment(filename)}`;
+}
+
+function encodeImageUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    parsed.pathname = `/${segments.map(encodePathSegment).join("/")}`;
+    return parsed.toString();
+  } catch {
+    return url;
+  }
 }
 
 function filenameFromPath(path: string): string {
   return path.split("/").pop() || path;
+}
+
+function pathToPublicUrl(uploadPath: string): string {
+  return buildImageUrl(filenameFromPath(uploadPath));
 }
 
 async function parseUploadResponse(
@@ -39,10 +61,9 @@ async function parseUploadResponse(
     throw new Error(data.error || "Image upload failed");
   }
 
-  const filename = filenameFromPath(data.path);
   return {
     path: data.path,
-    url: buildImageUrl(filename),
+    url: pathToPublicUrl(data.path),
   };
 }
 
@@ -52,9 +73,8 @@ export async function uploadImageBuffer(
   mimeType = "image/jpeg"
 ): Promise<UploadedImage> {
   const formData = new FormData();
-  const blob = new Blob([buffer], { type: mimeType });
+  const blob = new Blob([new Uint8Array(buffer)], { type: mimeType });
   formData.append("file", blob, filename);
-  formData.append("folder", UPLOAD_FOLDER);
 
   const response = await fetch(UPLOAD_URL, {
     method: "POST",
@@ -77,7 +97,6 @@ export async function uploadBase64Image(image: string): Promise<UploadedImage> {
     body: JSON.stringify({
       base64,
       filename,
-      folder: UPLOAD_FOLDER,
     }),
   });
 
@@ -94,16 +113,17 @@ export function normalizeImageList(
 export function toPublicImageUrl(storedValue: string): string {
   if (!storedValue) return storedValue;
 
-  if (storedValue.startsWith("http://") || storedValue.startsWith("https://")) {
-    // Rewrite legacy /images/ URLs to /ousoul/images/
-    return storedValue.replace(
+  let url = storedValue;
+  if (url.startsWith("http://") || url.startsWith("https://")) {
+    url = url.replace(
       /^(https?:\/\/[^/]+)\/images\//,
       `$1${IMAGE_PATH}/`
     );
+  } else {
+    url = pathToPublicUrl(storedValue);
   }
 
-  const filename = filenameFromPath(storedValue);
-  return buildImageUrl(filename);
+  return encodeImageUrl(url);
 }
 
 export async function deleteImages(paths: string[]): Promise<void> {

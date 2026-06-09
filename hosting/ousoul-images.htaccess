@@ -1,0 +1,6 @@
+# Upload this file to: public_html/ousoul/images/.htaccess
+# (upload.php saves files to /images/ — this serves them at /ousoul/images/)
+RewriteEngine On
+RewriteBase /ousoul/images/
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^(.+)$ /images/$1 [L]
