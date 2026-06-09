@@ -20,6 +20,10 @@ import {
   protectedPostDetRouter,
 } from "./router/getPostDetRouter";
 import { publicAdminRouter, protectedAdminRouter } from "./router/adminControlRoute";
+import {
+  publicAppConfigRouter,
+  protectedAppConfigRouter,
+} from "./router/appConfigRoute";
 
 const PORT = process.env.PORT || 3000;
 
@@ -54,12 +58,14 @@ app.use("/auth", authRoute);
 app.use("/", publicPostsRouter);
 app.use("/", publicPostDetRouter);
 app.use("/", publicAdminRouter);
+app.use("/", publicAppConfigRouter);
 
 // Protected routes (auth required)
 app.use("/", protect, CreateRoute);
 app.use("/", protect, protectedPostsRouter);
 app.use("/", protect, protectedPostDetRouter);
 app.use("/", protect, protectedAdminRouter);
+app.use("/", protect, protectedAppConfigRouter);
 
 const HOST = "0.0.0.0";
 
