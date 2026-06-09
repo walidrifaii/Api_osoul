@@ -5,7 +5,7 @@ import { isAdminUser } from "../utils/helper";
 import { normalizeImageList } from "../utils/imageStorage";
 
 const MIN_VIEW_INCREMENT = 1;
-const MAX_VIEW_INCREMENT = 20;
+const MAX_VIEW_INCREMENT = 5;
 
 function randomViewIncrement(): number {
   return crypto.randomInt(MIN_VIEW_INCREMENT, MAX_VIEW_INCREMENT + 1);
