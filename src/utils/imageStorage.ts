@@ -7,6 +7,7 @@ const UPLOAD_URL =
 const IMAGE_BASE_URL =
   process.env.IMAGE_BASE_URL || "https://st79068.ispot.cc";
 const IMAGE_PATH = process.env.IMAGE_PATH || "/ousoul/images";
+const UPLOAD_FOLDER = IMAGE_PATH.replace(/^\/|\/$/g, "");
 
 type UploadResponse = {
   success?: boolean;
@@ -53,6 +54,7 @@ export async function uploadImageBuffer(
   const formData = new FormData();
   const blob = new Blob([buffer], { type: mimeType });
   formData.append("file", blob, filename);
+  formData.append("folder", UPLOAD_FOLDER);
 
   const response = await fetch(UPLOAD_URL, {
     method: "POST",
@@ -75,6 +77,7 @@ export async function uploadBase64Image(image: string): Promise<UploadedImage> {
     body: JSON.stringify({
       base64,
       filename,
+      folder: UPLOAD_FOLDER,
     }),
   });
 
@@ -90,8 +93,13 @@ export function normalizeImageList(
 
 export function toPublicImageUrl(storedValue: string): string {
   if (!storedValue) return storedValue;
+
   if (storedValue.startsWith("http://") || storedValue.startsWith("https://")) {
-    return storedValue;
+    // Rewrite legacy /images/ URLs to /ousoul/images/
+    return storedValue.replace(
+      /^(https?:\/\/[^/]+)\/images\//,
+      `$1${IMAGE_PATH}/`
+    );
   }
 
   const filename = filenameFromPath(storedValue);

@@ -1,0 +1,4 @@
+# Upload to ispot site root (same folder as upload.php).
+# Maps public URL /ousoul/images/* to files stored under /images/*
+RewriteEngine On
+RewriteRule ^ousoul/images/(.*)$ images/$1 [L]
