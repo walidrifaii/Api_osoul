@@ -1,9 +1,11 @@
+import crypto from "crypto";
 import dotenv from "dotenv";
 
 dotenv.config();
 
 const UPLOAD_URL =
-  process.env.IMAGE_UPLOAD_URL || "https://st79068.ispot.cc/upload.php";
+  process.env.IMAGE_UPLOAD_URL ||
+  "https://st79068.ispot.cc/ousoul/upload.php";
 const IMAGE_BASE_URL =
   process.env.IMAGE_BASE_URL || "https://st79068.ispot.cc";
 const IMAGE_PATH = process.env.IMAGE_PATH || "/ousoul/images";
@@ -17,6 +19,11 @@ type UploadResponse = {
 export type UploadedImage = {
   url: string;
   path: string;
+};
+
+type DetectedImage = {
+  mimeType: string;
+  extension: string;
 };
 
 function encodePathSegment(segment: string): string {
@@ -52,10 +59,69 @@ function pathToPublicUrl(uploadPath: string): string {
   return buildImageUrl(filenameFromPath(uploadPath));
 }
 
+function uniqueFilename(extension: string): string {
+  return `upload_${Date.now()}_${crypto.randomBytes(4).toString("hex")}.${extension}`;
+}
+
+function detectImageMime(buffer: Buffer): DetectedImage {
+  if (
+    buffer.length >= 3 &&
+    buffer[0] === 0xff &&
+    buffer[1] === 0xd8 &&
+    buffer[2] === 0xff
+  ) {
+    return { mimeType: "image/jpeg", extension: "jpg" };
+  }
+
+  if (
+    buffer.length >= 8 &&
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47
+  ) {
+    return { mimeType: "image/png", extension: "png" };
+  }
+
+  if (
+    buffer.length >= 6 &&
+    (buffer.toString("ascii", 0, 6) === "GIF87a" ||
+      buffer.toString("ascii", 0, 6) === "GIF89a")
+  ) {
+    return { mimeType: "image/gif", extension: "gif" };
+  }
+
+  if (
+    buffer.length >= 12 &&
+    buffer.toString("ascii", 0, 4) === "RIFF" &&
+    buffer.toString("ascii", 8, 12) === "WEBP"
+  ) {
+    return { mimeType: "image/webp", extension: "webp" };
+  }
+
+  if (buffer.length >= 12 && buffer.toString("ascii", 4, 8) === "ftyp") {
+    const brand = buffer.toString("ascii", 8, 12).toLowerCase();
+    if (brand.includes("heic") || brand.includes("heif") || brand === "mif1") {
+      throw new Error(
+        "HEIC images are not supported. Please use JPG or PNG photos."
+      );
+    }
+  }
+
+  return { mimeType: "image/jpeg", extension: "jpg" };
+}
+
 async function parseUploadResponse(
   response: Response
 ): Promise<UploadedImage> {
-  const data = (await response.json()) as UploadResponse;
+  const text = await response.text();
+  let data: UploadResponse;
+
+  try {
+    data = JSON.parse(text) as UploadResponse;
+  } catch {
+    throw new Error(text || "Image upload failed");
+  }
 
   if (!response.ok || !data.success || !data.path) {
     throw new Error(data.error || "Image upload failed");
@@ -63,7 +129,7 @@ async function parseUploadResponse(
 
   return {
     path: data.path,
-    url: pathToPublicUrl(data.path),
+    url: encodeImageUrl(pathToPublicUrl(data.path)),
   };
 }
 
@@ -85,22 +151,18 @@ export async function uploadImageBuffer(
 }
 
 export async function uploadBase64Image(image: string): Promise<UploadedImage> {
-  const dataUrlMatch = image.match(/^data:(image\/[\w+.-]+);base64,(.+)$/);
+  const dataUrlMatch = image.match(/^data:(image\/[\w+.-]+);base64,(.+)$/i);
   const base64 = dataUrlMatch ? dataUrlMatch[2] : image;
-  const mimeType = dataUrlMatch?.[1] || "image/jpeg";
-  const extension = mimeType.split("/")[1]?.replace("jpeg", "jpg") || "jpg";
-  const filename = `upload_${Date.now()}.${extension}`;
+  const buffer = Buffer.from(base64, "base64");
 
-  const response = await fetch(UPLOAD_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      base64,
-      filename,
-    }),
-  });
+  if (buffer.length === 0) {
+    throw new Error("Empty image data received");
+  }
 
-  return parseUploadResponse(response);
+  const detected = detectImageMime(buffer);
+  const filename = uniqueFilename(detected.extension);
+
+  return uploadImageBuffer(buffer, filename, detected.mimeType);
 }
 
 export function normalizeImageList(
