@@ -1,5 +1,6 @@
 import { pool } from "../config/dp";
 import { Request, Response } from "express";
+import { AuthRequest } from "../middleware/protect";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
@@ -278,5 +279,33 @@ export const SendOTPController = async (req: Request, res: Response) => {
     console.error("OTP send error:", (error as Error).message);
     res.status(400).json({ isSent: false, message: "otp send failed" });
     return;
+  }
+};
+
+export const registerPushToken = async (req: Request, res: Response) => {
+  const authReq = req as AuthRequest;
+  const user = authReq.user as { user_id?: string } | undefined;
+  const userId = user?.user_id;
+  const { push_token } = req.body;
+
+  if (!userId) {
+    res.status(401).json({ message: "Unauthorized" });
+    return;
+  }
+
+  if (!push_token || typeof push_token !== "string") {
+    res.status(400).json({ message: "push_token is required" });
+    return;
+  }
+
+  try {
+    await pool.query(
+      "UPDATE users SET expo_push_token = $1 WHERE user_id = $2",
+      [push_token.trim(), userId]
+    );
+    res.status(200).json({ message: "Push token registered" });
+  } catch (error) {
+    console.error("Push token registration error:", (error as Error).message);
+    res.status(500).json({ message: "Failed to register push token" });
   }
 };

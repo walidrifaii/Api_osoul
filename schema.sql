@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS users (
   user_type VARCHAR(20) DEFAULT 'individual',
   pending BOOLEAN NOT NULL DEFAULT TRUE,
   is_active BOOLEAN NOT NULL DEFAULT FALSE,
+  expo_push_token TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
