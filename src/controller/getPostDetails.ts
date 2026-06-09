@@ -1,7 +1,15 @@
+import crypto from "crypto";
 import { pool } from "../config/dp";
 import { Request, Response } from "express";
 import { isAdminUser } from "../utils/helper";
 import { normalizeImageList } from "../utils/imageStorage";
+
+const MIN_VIEW_INCREMENT = 1;
+const MAX_VIEW_INCREMENT = 20;
+
+function randomViewIncrement(): number {
+  return crypto.randomInt(MIN_VIEW_INCREMENT, MAX_VIEW_INCREMENT + 1);
+}
 
 export const getPostDet = async (req: Request, res: Response) => {
   const post_id = req.query.post_id;
@@ -71,22 +79,28 @@ export const getPostDet = async (req: Request, res: Response) => {
 
 export const incrementViewCount = async (req: Request, res: Response) => {
   try {
-    console.log(req.body);
     const postId = req.body.post_id;
-    const updateViewCountQuery = `UPDATE posts SET viewscnt = viewscnt + $2 where id = $1 RETURNING viewscnt;`;
-    const updateViewCountValues = [postId, 1];
-    const result = await pool.query(
-      updateViewCountQuery,
-      updateViewCountValues
-    );
-    console.log("Returning 200: View count updated successfully");
+    if (!postId) {
+      res.status(400).json({ message: "post_id is required" });
+      return;
+    }
+
+    const incrementBy = randomViewIncrement();
+    const updateViewCountQuery = `UPDATE posts SET viewscnt = viewscnt + $2 WHERE id = $1 RETURNING viewscnt;`;
+    const result = await pool.query(updateViewCountQuery, [postId, incrementBy]);
+
+    if ((result.rowCount ?? 0) === 0) {
+      res.status(404).json({ message: "Post not found" });
+      return;
+    }
+
     res.status(200).json({
       newViewsValue: result.rows[0].viewscnt,
+      incrementBy,
       message: "View count updated successfully",
     });
   } catch (error) {
-    console.log(error);
-    console.log("Returning 500: Failed to update view count");
+    console.error("Failed to update view count:", error);
     res.status(500).json({ message: "Failed to update view count" });
   }
 };
