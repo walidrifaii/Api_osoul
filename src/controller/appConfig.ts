@@ -4,6 +4,11 @@ import {
   saveAppVersionSettings,
   AppVersionSettings,
 } from "../utils/appVersionConfig";
+import {
+  getAllUserPushTokens,
+  hasVersionChanged,
+  queueVersionUpdateNotifications,
+} from "../utils/expoPushNotifications";
 
 function isValidVersion(value: unknown): value is string {
   return (
@@ -92,10 +97,36 @@ export const updateAppVersionSettings = async (req: Request, res: Response) => {
   }
 
   try {
+    const previousSettings = await loadAppVersionSettings();
     const saved = await saveAppVersionSettings(settings);
+    const versionChanged = hasVersionChanged(previousSettings, saved);
+
+    let notifications = {
+      queued: false,
+      totalRecipients: 0,
+      batchSize: 10,
+      totalBatches: 0,
+      version: saved.latest_version,
+    };
+
+    if (versionChanged) {
+      const tokens = await getAllUserPushTokens();
+      notifications = {
+        queued: tokens.length > 0,
+        totalRecipients: tokens.length,
+        batchSize: 10,
+        totalBatches: Math.ceil(tokens.length / 10),
+        version: saved.latest_version,
+      };
+      queueVersionUpdateNotifications(saved);
+    }
+
     res.status(200).json({
-      message: "App version settings updated successfully",
+      message: versionChanged
+        ? "App version settings updated and update notifications are being sent in batches"
+        : "App version settings updated successfully",
       settings: saved,
+      notifications,
     });
   } catch (error) {
     console.error("Error saving app version settings:", error);
