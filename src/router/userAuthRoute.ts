@@ -1,8 +1,11 @@
 import express from "express";
 import { registerUser, Login } from "../controller/userAuth";
 import { LoginAdmin, RegAdmin } from "../controller/adminAuth";
-import { verfiyUser, deleteUser } from "../controller/userAuth";
-import { SendOTPController } from "../controller/userAuth";
+import {
+  verfiyUser,
+  deleteUser,
+  SendOTPController,
+} from "../controller/userAuth";
 const router = express.Router();
 
 router.post("/register", registerUser);

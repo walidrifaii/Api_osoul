@@ -1,7 +1,7 @@
-import CloudinaryCon from "../config/cloudinary";
 import { pool } from "../config/dp";
 import { Request, Response } from "express";
 import { isAdminUser } from "../utils/helper";
+import { normalizeImageList } from "../utils/imageStorage";
 
 export const getPostDet = async (req: Request, res: Response) => {
   const post_id = req.query.post_id;
@@ -51,7 +51,10 @@ export const getPostDet = async (req: Request, res: Response) => {
   try {
     const queryResult = await pool.query(query, values);
     if ((queryResult.rowCount ?? 0) > 0) {
-      const postDetails = queryResult.rows[0];
+      const postDetails = {
+        ...queryResult.rows[0],
+        images: normalizeImageList(queryResult.rows[0].images),
+      };
       console.log("Details for post: ", postDetails);
       console.log("Returning 200 with post details");
       res.status(200).json(postDetails);

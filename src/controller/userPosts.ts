@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { pool } from "../config/dp";
-import CloudinaryCon from "../config/cloudinary";
+import { deleteImages, normalizeImageList } from "../utils/imageStorage";
 import { isAdminUser } from "../utils/helper";
 
 export const getSaved = async (req: Request, res: Response) => {
@@ -297,7 +297,7 @@ export const filterPosts = async (req: Request, res: Response) => {
           longitude: row.longitude,
           latitude: row.latitude,
         },
-        images: row.images || [],
+        images: normalizeImageList(row.images),
         category_id: row.category_id,
         price: row.price,
         condition_id: row.condition_id,
@@ -402,10 +402,7 @@ export const deletePost = async (req: Request, res: Response) => {
     const publicIds: string[] = fetchRes.rows[0].public_ids || [];
 
     if (publicIds.length > 0) {
-      await Promise.all(
-        publicIds.map((pid) => CloudinaryCon.uploader.destroy(pid))
-      );
-      console.log("Deleted Cloudinary images:", publicIds);
+      await deleteImages(publicIds);
     }
 
     const deleteRes = await pool.query(
@@ -490,7 +487,7 @@ export const getAllPosts = async (req: Request, res: Response) => {
         user_full_name_ar: post.user_full_name_ar,
         commercial_reg: post.commercial_reg ?? "لا يوجد سجل تجاري",
         categorey: post.category_id,
-        image: post.images[0],
+        image: normalizeImageList(post.images)[0],
       };
     });
     res.status(200).json(DataToSend);

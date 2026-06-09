@@ -1,7 +1,10 @@
 import { Request, Response } from "express";
 import { pool } from "../config/dp";
-import CloudinaryCon from "../config/cloudinary";
 import { canCreatePost } from "../utils/helper";
+import {
+  uploadBase64Image,
+  uploadImageBuffer,
+} from "../utils/imageStorage";
 export const createPost = async (req: Request, res: Response) => {
   let {
     user_id,
@@ -21,7 +24,7 @@ export const createPost = async (req: Request, res: Response) => {
     land_area,
     images,
   } = req.body;
-  let publicImagesIds: string[] = [];
+  let imagePaths: string[] = [];
   if (!isDirect) {
     isDirect = req.body.is_direct;
   }
@@ -104,7 +107,7 @@ export const createPost = async (req: Request, res: Response) => {
       toilets,
       land_area,
       images,       -- TEXT[] of URLs
-      public_ids,   -- TEXT[] of Cloudinary public_ids
+      public_ids,   -- TEXT[] of stored image paths
       address,      -- nullable text
       location      -- geography point
     )
@@ -127,47 +130,26 @@ export const createPost = async (req: Request, res: Response) => {
     )
     RETURNING id;
   `;
-    const imageUploadPromises: Promise<string>[] = [];
+    const imageUploadPromises: Promise<{ url: string; path: string }>[] = [];
+
     if (req.files && (req.files as Express.Multer.File[]).length > 0) {
       const files = req.files as Express.Multer.File[];
 
       for (const file of files) {
-        const uploadPromise = new Promise<string>((resolve, reject) => {
-          const stream = CloudinaryCon.uploader.upload_stream(
-            {
-              folder: "uploads",
-              quality: "auto:low",
-              fetch_format: "auto",
-            },
-            (err, result) => {
-              if (err || !result)
-                return reject(err || new Error("Upload failed"));
-              resolve(result.secure_url);
-              publicImagesIds.push(result.public_id);
-            }
-          );
-
-          stream.end(file.buffer); // send the buffer as stream
-        });
-
-        imageUploadPromises.push(uploadPromise);
+        imageUploadPromises.push(
+          uploadImageBuffer(
+            file.buffer,
+            file.originalname || `upload_${Date.now()}.jpg`,
+            file.mimetype
+          )
+        );
       }
     }
-    if (images && Array.isArray(images)) {
-      const base64UploadPromises = images.map((image: string) =>
-        CloudinaryCon.uploader
-          .upload(image, {
-            folder: "uploads",
-            quality: "auto:low",
-            fetch_format: "auto",
-          })
-          .then((result) => {
-            publicImagesIds.push(result.public_id);
-            return result.secure_url;
-          })
-      );
 
-      imageUploadPromises.push(...base64UploadPromises);
+    if (images && Array.isArray(images)) {
+      imageUploadPromises.push(
+        ...images.map((image: string) => uploadBase64Image(image))
+      );
     }
 
     if (imageUploadPromises.length === 0) {
@@ -175,13 +157,14 @@ export const createPost = async (req: Request, res: Response) => {
       return;
     }
 
-    // Enforce max 4 images per post
     if (imageUploadPromises.length > 4) {
       res.status(400).json({ error: "Maximum 4 images allowed per post." });
       return;
     }
 
-    const uploadedImageUrls = await Promise.all(imageUploadPromises);
+    const uploadedImages = await Promise.all(imageUploadPromises);
+    const uploadedImageUrls = uploadedImages.map((image) => image.url);
+    imagePaths = uploadedImages.map((image) => image.path);
     const values = [
       user_id, // $1
       caption, // $2
@@ -197,7 +180,7 @@ export const createPost = async (req: Request, res: Response) => {
       toilets ?? null, // $12
       land_area ?? null, // $13
       uploadedImageUrls, // $14 → TEXT[] of URLs
-      publicImagesIds, // $15 → TEXT[] of public_ids
+      imagePaths, // $15 → TEXT[] of image paths
       address ?? null, // $16
       locationCoordinates.latitude ?? null, // $17
       locationCoordinates.longitude ?? null, // $18

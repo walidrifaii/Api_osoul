@@ -262,6 +262,7 @@ export const verfiyUser = async (req: Request, res: Response) => {
     return;
   }
 };
+
 export const SendOTPController = async (req: Request, res: Response) => {
   const { phone } = req.body;
   let normalizedPhone = "";
