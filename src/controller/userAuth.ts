@@ -317,7 +317,7 @@ export const registerPushToken = async (req: Request, res: Response) => {
   const authReq = req as AuthRequest;
   const user = authReq.user as { user_id?: string } | undefined;
   const userId = user?.user_id;
-  const { push_token } = req.body;
+  const { push_token, push_platform } = req.body;
 
   if (!userId) {
     res.status(401).json({ message: "Unauthorized" });
@@ -329,11 +329,23 @@ export const registerPushToken = async (req: Request, res: Response) => {
     return;
   }
 
+  const platform =
+    push_platform === "ios" || push_platform === "android"
+      ? push_platform
+      : null;
+
   try {
-    await pool.query(
-      "UPDATE users SET expo_push_token = $1 WHERE user_id = $2",
-      [push_token.trim(), userId]
-    );
+    try {
+      await pool.query(
+        "UPDATE users SET expo_push_token = $1, push_platform = $2 WHERE user_id = $3",
+        [push_token.trim(), platform, userId]
+      );
+    } catch {
+      await pool.query(
+        "UPDATE users SET expo_push_token = $1 WHERE user_id = $2",
+        [push_token.trim(), userId]
+      );
+    }
     res.status(200).json({ message: "Push token registered" });
   } catch (error) {
     console.error("Push token registration error:", (error as Error).message);
