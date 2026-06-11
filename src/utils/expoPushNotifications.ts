@@ -5,6 +5,7 @@ const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 const BATCH_SIZE = 10;
 const BATCH_DELAY_MS = 1500;
 const ANDROID_NOTIFICATION_CHANNEL = "default";
+const ANDROID_NOTIFICATION_ICON = "notification_icon";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -50,6 +51,7 @@ type ExpoPushMessage = {
   body?: string;
   priority?: "high" | "default";
   channelId?: string;
+  icon?: string;
   data: Record<string, string>;
 };
 
@@ -78,17 +80,15 @@ function buildVersionUpdateMessage(
     };
   }
 
-  // Android: data-only payload so expo-notifications renders with the app's icon.
+  // Standalone Osoul APK uses notification_icon from the app manifest.
   return {
     to: recipient.token,
+    title,
+    body,
     priority: "high",
     channelId: ANDROID_NOTIFICATION_CHANNEL,
-    data: {
-      title,
-      message: body,
-      channelId: ANDROID_NOTIFICATION_CHANNEL,
-      ...data,
-    },
+    icon: ANDROID_NOTIFICATION_ICON,
+    data,
   };
 }
 

@@ -317,7 +317,8 @@ export const registerPushToken = async (req: Request, res: Response) => {
   const authReq = req as AuthRequest;
   const user = authReq.user as { user_id?: string } | undefined;
   const userId = user?.user_id;
-  const { push_token, push_platform } = req.body;
+  const { push_token, push_platform, push_app_id } = req.body;
+  const STANDALONE_APP_ID = "com.vesco.osoul";
 
   if (!userId) {
     res.status(401).json({ message: "Unauthorized" });
@@ -329,10 +330,35 @@ export const registerPushToken = async (req: Request, res: Response) => {
     return;
   }
 
-  const platform =
+  if (push_app_id === "host.exp.exponent") {
+    res.status(400).json({
+      message:
+        "Push token must be registered from the Osoul APK, not Expo Go.",
+    });
+    return;
+  }
+
+  if (
+    typeof push_app_id === "string" &&
+    push_app_id.length > 0 &&
+    push_app_id !== STANDALONE_APP_ID
+  ) {
+    res.status(400).json({
+      message:
+        "Push token must be registered from the Osoul APK, not Expo Go or another app.",
+      push_app_id,
+    });
+    return;
+  }
+
+  let platform =
     push_platform === "ios" || push_platform === "android"
       ? push_platform
       : null;
+
+  if (!platform && push_app_id === STANDALONE_APP_ID) {
+    platform = "android";
+  }
 
   try {
     try {
