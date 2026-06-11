@@ -1,6 +1,7 @@
 -- ============================================================
--- STEP 1: Run this ONCE in DbGate to create the test user
--- Phone: 97455551234
+-- Test login user (run once in DbGate on production DB)
+-- App: enter phone 55551234 → Login (not Register)
+-- OTP: 1234 (fixed test code — no WhatsApp needed)
 -- ============================================================
 
 INSERT INTO public.users (
@@ -28,32 +29,13 @@ ON CONFLICT (user_phone) DO UPDATE SET
   pending       = false,
   updated_at    = CURRENT_TIMESTAMP;
 
--- ============================================================
--- STEP 2: In the app, enter phone 55551234 and tap LOGIN
---         (wait until OTP screen appears)
---
--- STEP 3: Run ONLY the block below in DbGate, then enter OTP 1234
---         Do NOT tap "Resend OTP"
--- ============================================================
+-- OTP row is optional: backend auto-accepts 1234 for this phone.
+-- After tapping Login, you can verify immediately with 1234.
+-- Only run below if you need DB OTP without the test bypass:
 
-DELETE FROM public.otps
-WHERE phone = '97455551234';
+-- DELETE FROM public.otps WHERE phone = '97455551234';
+-- (Re-login in app to regenerate OTP via API)
 
-INSERT INTO public.otps (
-  phone,
-  otp_hash,
-  expires_at,
-  used
-) VALUES (
-  '97455551234',
-  '$2b$10$DXlefH0jdL0d24BZy1R0gek4KvBOz1p0hxAVxbfiTdd7OlJYC9/Pe',
-  NOW() + INTERVAL '24 hours',
-  false
-);
-
--- Check OTP is ready
-SELECT phone, used, expires_at > NOW() AS is_valid
-FROM public.otps
-WHERE phone = '97455551234'
-ORDER BY created_at DESC
-LIMIT 1;
+SELECT user_phone, pending, is_active
+FROM public.users
+WHERE user_phone = '97455551234';

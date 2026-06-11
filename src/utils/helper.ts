@@ -2,10 +2,10 @@ import { pool } from "../config/dp";
 import crypto from "crypto";
 import bcrypt from "bcrypt";
 import {
+  hashTestLoginOtp,
   isTestLoginPhone,
   normalizeQatarPhone,
   TEST_LOGIN_OTP,
-  TEST_LOGIN_OTP_HASH,
 } from "./testAuth";
 
 export const getUserByPhone = async (user_phone: string) => {
@@ -44,9 +44,10 @@ export const sendOTP = async (phone: string) => {
     if (isTestLoginPhone(normalizedPhone)) {
       await pool.query("DELETE FROM otps WHERE phone = $1", [normalizedPhone]);
       const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      const hashedOTP = await hashTestLoginOtp();
       await pool.query(
         "INSERT INTO otps (phone, otp_hash, expires_at, used) VALUES ($1, $2, $3, false)",
-        [normalizedPhone, TEST_LOGIN_OTP_HASH, expiresAt]
+        [normalizedPhone, hashedOTP, expiresAt]
       );
       console.log(
         `[TEST LOGIN] Fixed OTP ${TEST_LOGIN_OTP} for ${normalizedPhone}`

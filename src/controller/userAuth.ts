@@ -9,6 +9,7 @@ import cron from "node-cron";
 import { sendOTP } from "../utils/helper";
 import {
   isTestLoginPhone,
+  normalizeOtp,
   normalizeQatarPhone,
   TEST_LOGIN_OTP,
 } from "../utils/testAuth";
@@ -185,7 +186,8 @@ export const deleteUser = async (req: Request, res: Response) => {
 
 export const verfiyUser = async (req: Request, res: Response) => {
   try {
-    const { phone, otp } = req.body;
+    const { phone, otp: rawOtp } = req.body;
+    const otp = normalizeOtp(rawOtp);
 
     // Input validation
     if (!otp || !/^\d{4}$/.test(otp)) {
