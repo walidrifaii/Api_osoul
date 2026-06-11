@@ -37,7 +37,25 @@ app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: false, limit: "10mb" }));
 app.use(
   cors({
-    origin: ["https://www.osoulqatar.com", "http://localhost:8082", "http://localhost:3000"],
+    origin: (origin, callback) => {
+      const allowedOrigins = [
+        "https://www.osoulqatar.com",
+        "http://localhost:8082",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+      ];
+      if (
+        !origin ||
+        allowedOrigins.includes(origin) ||
+        /^http:\/\/localhost:\d+$/.test(origin) ||
+        /^http:\/\/127\.0\.0\.1:\d+$/.test(origin) ||
+        /^http:\/\/192\.168\.\d+\.\d+:\d+$/.test(origin)
+      ) {
+        callback(null, true);
+      } else {
+        callback(new Error(`CORS blocked for origin: ${origin}`));
+      }
+    },
     methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
