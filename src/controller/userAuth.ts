@@ -7,6 +7,7 @@ import crypto from "crypto";
 import { getUserByPhone } from "../utils/helper";
 import cron from "node-cron";
 import { sendOTP } from "../utils/helper";
+import { normalizeQatarPhone } from "../utils/testAuth";
 cron.schedule("*/20 * * * *", async () => {
   try {
     await pool.query(
@@ -188,11 +189,15 @@ export const verfiyUser = async (req: Request, res: Response) => {
       return;
     }
 
-    let normalizedPhone = "";
-    if (phone.slice(0, 3) != "974") {
-      normalizedPhone = `974${phone}`;
-    } else {
-      normalizedPhone = phone;
+    if (!phone) {
+      res.status(400).json({ error: "Phone is required", isVerfied: false });
+      return;
+    }
+
+    const normalizedPhone = normalizeQatarPhone(phone);
+    if (!/^974\d{8}$/.test(normalizedPhone)) {
+      res.status(400).json({ error: "Invalid phone format", isVerfied: false });
+      return;
     }
 
     // All users go through proper OTP verification (no bypasses)
@@ -266,11 +271,10 @@ export const verfiyUser = async (req: Request, res: Response) => {
 
 export const SendOTPController = async (req: Request, res: Response) => {
   const { phone } = req.body;
-  let normalizedPhone = "";
-  if (phone.slice(0, 3) != "974") {
-    normalizedPhone = `974${phone}`;
-  } else {
-    normalizedPhone = phone;
+  const normalizedPhone = normalizeQatarPhone(phone);
+  if (!/^974\d{8}$/.test(normalizedPhone)) {
+    res.status(400).json({ isSent: false, message: "Invalid phone format" });
+    return;
   }
   try {
     await sendOTP(normalizedPhone);

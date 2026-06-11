@@ -5,6 +5,11 @@ const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 const BATCH_SIZE = 10;
 const BATCH_DELAY_MS = 1500;
 
+// Android drawable name from app build (expo-notifications plugin → @drawable/notification_icon).
+// Expo push API uses top-level fields, not { android: { icon } } (that is raw FCM format).
+const ANDROID_NOTIFICATION_ICON = "notification_icon";
+const ANDROID_NOTIFICATION_CHANNEL = "default";
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -28,6 +33,8 @@ type ExpoPushMessage = {
   title: string;
   body: string;
   data: Record<string, string>;
+  icon?: string;
+  channelId?: string;
 };
 
 function buildVersionUpdateMessages(
@@ -43,6 +50,8 @@ function buildVersionUpdateMessages(
     sound: "default",
     title,
     body,
+    icon: ANDROID_NOTIFICATION_ICON,
+    channelId: ANDROID_NOTIFICATION_CHANNEL,
     data: {
       type: "app_version_update",
       required_version: settings.required_version,

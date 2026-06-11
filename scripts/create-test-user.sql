@@ -29,7 +29,7 @@ ON CONFLICT (user_phone) DO UPDATE SET
   updated_at    = CURRENT_TIMESTAMP;
 
 -- ============================================================
--- STEP 2: In the app, enter phone 97455551234 and tap LOGIN
+-- STEP 2: In the app, enter phone 55551234 and tap LOGIN
 --         (wait until OTP screen appears)
 --
 -- STEP 3: Run ONLY the block below in DbGate, then enter OTP 1234
@@ -46,7 +46,7 @@ INSERT INTO public.otps (
   used
 ) VALUES (
   '97455551234',
-  '$2b$10$m8vjKe2XVNV06hR5Wh8Os.DQgU.O0xemhPwr3P2CpFlhAEA8xRTaa',
+  '$2b$10$Ku93lIMkOBBRnO9/.HnG4evTZ8qtdZo6PWAvJPa2aW5opwPkzVhpe',
   NOW() + INTERVAL '24 hours',
   false
 );
