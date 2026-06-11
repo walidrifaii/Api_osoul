@@ -7,7 +7,11 @@ import crypto from "crypto";
 import { getUserByPhone } from "../utils/helper";
 import cron from "node-cron";
 import { sendOTP } from "../utils/helper";
-import { normalizeQatarPhone } from "../utils/testAuth";
+import {
+  isTestLoginPhone,
+  normalizeQatarPhone,
+  TEST_LOGIN_OTP,
+} from "../utils/testAuth";
 cron.schedule("*/20 * * * *", async () => {
   try {
     await pool.query(
@@ -200,34 +204,48 @@ export const verfiyUser = async (req: Request, res: Response) => {
       return;
     }
 
-    // All users go through proper OTP verification (no bypasses)
-    const { rows } = await pool.query(
-      "SELECT id, otp_hash, expires_at, used FROM otps WHERE phone=$1 ORDER BY created_at DESC LIMIT 1",
-      [normalizedPhone]
-    );
-    if (rows.length === 0) {
-      res
-        .status(400)
-        .json({ error: "No OTP requested for this number", isVerfied: false });
-      return;
-    }
-    const { id, otp_hash, expires_at, used } = rows[0];
-    if (used) {
-      res.status(400).json({ error: "OTP already used", isVerfied: false });
-      return;
-    }
-    if (new Date() > expires_at) {
-      res.status(400).json({ error: "OTP expired", isVerfied: false });
-      return;
-    }
+    const isFixedTestLogin =
+      isTestLoginPhone(normalizedPhone) && otp === TEST_LOGIN_OTP;
 
-    const enteredHash = await bcrypt.compare(otp, otp_hash);
-    if (!enteredHash) {
-      res.status(400).json({ error: "Invalid OTP", isVerfied: false });
-      return;
+    let otpRowId: number | null = null;
+
+    if (!isFixedTestLogin) {
+      const { rows } = await pool.query(
+        "SELECT id, otp_hash, expires_at, used FROM otps WHERE phone=$1 ORDER BY created_at DESC LIMIT 1",
+        [normalizedPhone]
+      );
+      if (rows.length === 0) {
+        res
+          .status(400)
+          .json({ error: "No OTP requested for this number", isVerfied: false });
+        return;
+      }
+      const { id, otp_hash, expires_at, used } = rows[0];
+      if (used) {
+        res.status(400).json({ error: "OTP already used", isVerfied: false });
+        return;
+      }
+      if (new Date() > expires_at) {
+        res.status(400).json({ error: "OTP expired", isVerfied: false });
+        return;
+      }
+
+      const enteredHash = await bcrypt.compare(otp, otp_hash);
+      if (!enteredHash) {
+        res.status(400).json({ error: "Invalid OTP", isVerfied: false });
+        return;
+      }
+      otpRowId = id;
     }
 
     const result = await getUserByPhone(normalizedPhone);
+    if (!result) {
+      res.status(404).json({
+        error: "No user registered with this phone number",
+        isVerfied: false,
+      });
+      return;
+    }
     const user = {
       user_id: result.user_id,
       user_phone: result.user_phone,
@@ -255,7 +273,14 @@ export const verfiyUser = async (req: Request, res: Response) => {
       user,
       isVerfied: true,
     });
-    await pool.query("UPDATE otps SET used = true WHERE id = $1", [id]);
+    if (otpRowId !== null) {
+      await pool.query("UPDATE otps SET used = true WHERE id = $1", [otpRowId]);
+    } else {
+      await pool.query(
+        "UPDATE otps SET used = true WHERE phone = $1 AND used = false",
+        [normalizedPhone]
+      );
+    }
     await pool.query("UPDATE users SET pending = false WHERE user_phone = $1", [
       normalizedPhone,
     ]);
