@@ -19,7 +19,7 @@ const TEST_USER = {
 };
 const TEST_OTP = "1234";
 const TEST_OTP_HASH =
-  "$2b$10$Ku93lIMkOBBRnO9/.HnG4evTZ8qtdZo6PWAvJPa2aW5opwPkzVhpe";
+  "$2b$10$DXlefH0jdL0d24BZy1R0gek4KvBOz1p0hxAVxbfiTdd7OlJYC9/Pe";
 
 async function main() {
   const databaseUrl = process.argv.includes("--local")

@@ -55,7 +55,7 @@ INSERT INTO public.otps (
   used
 ) VALUES (
   '97455551234',
-  '$2b$10$Ku93lIMkOBBRnO9/.HnG4evTZ8qtdZo6PWAvJPa2aW5opwPkzVhpe',
+  '$2b$10$DXlefH0jdL0d24BZy1R0gek4KvBOz1p0hxAVxbfiTdd7OlJYC9/Pe',
   NOW() + INTERVAL '24 hours',
   false
 );

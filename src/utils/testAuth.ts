@@ -1,7 +1,7 @@
 export const TEST_LOGIN_PHONE = "97455551234";
 export const TEST_LOGIN_OTP = "1234";
 export const TEST_LOGIN_OTP_HASH =
-  "$2b$10$Ku93lIMkOBBRnO9/.HnG4evTZ8qtdZo6PWAvJPa2aW5opwPkzVhpe";
+  "$2b$10$DXlefH0jdL0d24BZy1R0gek4KvBOz1p0hxAVxbfiTdd7OlJYC9/Pe";
 
 export function normalizeQatarPhone(phone: string): string {
   const digits = String(phone || "").replace(/\D/g, "");
