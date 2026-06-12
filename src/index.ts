@@ -27,8 +27,43 @@ import {
 
 const PORT = process.env.PORT || 3000;
 
+const DEFAULT_CORS_ORIGINS = [
+  "https://www.osoulqatar.com",
+  "https://amctag-admin-osoul.38f0fz.easypanel.host",
+  "http://localhost:8082",
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+];
+
+function getAllowedCorsOrigins(): string[] {
+  const fromEnv = (process.env.CORS_ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+
+  return [...new Set([...DEFAULT_CORS_ORIGINS, ...fromEnv])];
+}
+
+function isAllowedCorsOrigin(origin: string | undefined, allowedOrigins: string[]): boolean {
+  if (!origin) {
+    return true;
+  }
+
+  if (allowedOrigins.includes(origin)) {
+    return true;
+  }
+
+  return (
+    /^http:\/\/localhost:\d+$/.test(origin) ||
+    /^http:\/\/127\.0\.0\.1:\d+$/.test(origin) ||
+    /^http:\/\/192\.168\.\d+\.\d+:\d+$/.test(origin) ||
+    /^https:\/\/.*\.easypanel\.host$/.test(origin)
+  );
+}
+
 /* Configeration */
 const app = express();
+const allowedCorsOrigins = getAllowedCorsOrigins();
 connectDB();
 app.use(helmet());
 app.use(helmet.crossOriginResourcePolicy({ policy: "cross-origin" }));
@@ -38,19 +73,7 @@ app.use(express.urlencoded({ extended: false, limit: "10mb" }));
 app.use(
   cors({
     origin: (origin, callback) => {
-      const allowedOrigins = [
-        "https://www.osoulqatar.com",
-        "http://localhost:8082",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-      ];
-      if (
-        !origin ||
-        allowedOrigins.includes(origin) ||
-        /^http:\/\/localhost:\d+$/.test(origin) ||
-        /^http:\/\/127\.0\.0\.1:\d+$/.test(origin) ||
-        /^http:\/\/192\.168\.\d+\.\d+:\d+$/.test(origin)
-      ) {
+      if (isAllowedCorsOrigin(origin, allowedCorsOrigins)) {
         callback(null, true);
       } else {
         callback(new Error(`CORS blocked for origin: ${origin}`));
