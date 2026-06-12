@@ -61,7 +61,7 @@ export const getAppVersion = async (_req: Request, res: Response) => {
   try {
     const settings = await loadAppVersionSettings();
 
-    res.set("Cache-Control", "public, max-age=300");
+    res.set("Cache-Control", "no-store, no-cache, must-revalidate");
     res.status(200).json({
       required_version: settings.required_version,
       latest_version: settings.latest_version,
