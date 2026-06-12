@@ -8,7 +8,7 @@ import {
   getAllUserPushTokens,
   hasVersionChanged,
   queueVersionUpdateNotifications,
-} from "../utils/expoPushNotifications";
+} from "../utils/fcmPushNotifications";
 
 function isValidVersion(value: unknown): value is string {
   return (

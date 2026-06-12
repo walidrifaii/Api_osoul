@@ -330,6 +330,14 @@ export const registerPushToken = async (req: Request, res: Response) => {
     return;
   }
 
+  if (push_token.startsWith("ExponentPushToken[")) {
+    res.status(400).json({
+      message:
+        "Expo push tokens are no longer supported. Rebuild the Osoul APK and log in again to register a Firebase token.",
+    });
+    return;
+  }
+
   if (push_app_id === "host.exp.exponent") {
     res.status(400).json({
       message:
@@ -372,7 +380,11 @@ export const registerPushToken = async (req: Request, res: Response) => {
         [push_token.trim(), userId]
       );
     }
-    res.status(200).json({ message: "Push token registered" });
+    res.status(200).json({
+      message: "Push token registered",
+      push_platform: platform,
+      push_app_id: typeof push_app_id === "string" ? push_app_id : null,
+    });
   } catch (error) {
     console.error("Push token registration error:", (error as Error).message);
     res.status(500).json({ message: "Failed to register push token" });

@@ -4,7 +4,8 @@
 -- App login: phone 55551234 → Login (not Register) → OTP 1234
 -- APK only: npm run android:install → open OSOUL app (not Expo Go)
 --
--- Push token CANNOT be set in SQL — it is created on the phone.
+-- Push token CANNOT be set in SQL — it is created on the phone at login.
+-- Requires: mobile/google-services.json (Firebase) + npm run android:install
 -- After login from the Osoul APK, run the verify query at the bottom.
 -- ============================================================
 
@@ -45,7 +46,7 @@ ON CONFLICT (user_phone) DO UPDATE SET
 DELETE FROM public.otps WHERE phone = '97455551234';
 
 -- After login on phone from OSOUL APK, you should see:
---   expo_push_token = ExponentPushToken[...]
+--   expo_push_token = long Firebase FCM token (NOT ExponentPushToken[...])
 --   push_platform   = android
 SELECT
   user_phone,
