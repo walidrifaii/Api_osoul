@@ -1,0 +1,5 @@
+ALTER TABLE users
+ADD COLUMN IF NOT EXISTS push_token_type TEXT;
+
+ALTER TABLE users
+ADD COLUMN IF NOT EXISTS push_environment TEXT;

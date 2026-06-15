@@ -313,11 +313,29 @@ export const SendOTPController = async (req: Request, res: Response) => {
   }
 };
 
+function parsePushPlatform(value: unknown): "ios" | "android" | null {
+  return value === "ios" || value === "android" ? value : null;
+}
+
+function parsePushTokenType(value: unknown): "apns" | "fcm" | null {
+  return value === "apns" || value === "fcm" ? value : null;
+}
+
+function parsePushEnvironment(value: unknown): "sandbox" | "production" | null {
+  return value === "sandbox" || value === "production" ? value : null;
+}
+
 export const registerPushToken = async (req: Request, res: Response) => {
   const authReq = req as AuthRequest;
   const user = authReq.user as { user_id?: string } | undefined;
   const userId = user?.user_id;
-  const { push_token, push_platform, push_app_id } = req.body;
+  const {
+    push_token,
+    push_platform,
+    push_token_type,
+    push_environment,
+    push_app_id,
+  } = req.body;
   const STANDALONE_APP_ID = "com.vesco.osoul";
 
   if (!userId) {
@@ -333,7 +351,7 @@ export const registerPushToken = async (req: Request, res: Response) => {
   if (push_token.startsWith("ExponentPushToken[")) {
     res.status(400).json({
       message:
-        "Expo push tokens are no longer supported. Rebuild the Osoul APK and log in again to register a Firebase token.",
+        "Expo push tokens are no longer supported. Rebuild the Osoul app and log in again to register a Firebase/APNs token.",
     });
     return;
   }
@@ -341,7 +359,7 @@ export const registerPushToken = async (req: Request, res: Response) => {
   if (push_app_id === "host.exp.exponent") {
     res.status(400).json({
       message:
-        "Push token must be registered from the Osoul APK, not Expo Go.",
+        "Push token must be registered from the Osoul app, not Expo Go.",
     });
     return;
   }
@@ -353,36 +371,92 @@ export const registerPushToken = async (req: Request, res: Response) => {
   ) {
     res.status(400).json({
       message:
-        "Push token must be registered from the Osoul APK, not Expo Go or another app.",
+        "Push token must be registered from the Osoul app, not Expo Go or another app.",
       push_app_id,
     });
     return;
   }
 
-  let platform =
-    push_platform === "ios" || push_platform === "android"
-      ? push_platform
-      : null;
+  let platform = parsePushPlatform(push_platform);
+  const tokenType = parsePushTokenType(push_token_type);
+  const environment = parsePushEnvironment(push_environment);
+
+  if (!platform && tokenType === "apns") {
+    platform = "ios";
+  }
+
+  if (!platform && tokenType === "fcm") {
+    platform = "android";
+  }
 
   if (!platform && push_app_id === STANDALONE_APP_ID) {
     platform = "android";
   }
 
+  if (platform === "ios" && tokenType && tokenType !== "apns") {
+    res.status(400).json({
+      message: "iOS push tokens must use push_token_type apns.",
+    });
+    return;
+  }
+
+  if (platform === "android" && tokenType && tokenType !== "fcm") {
+    res.status(400).json({
+      message: "Android push tokens must use push_token_type fcm.",
+    });
+    return;
+  }
+
+  const resolvedTokenType =
+    tokenType ?? (platform === "ios" ? "apns" : platform === "android" ? "fcm" : null);
+
   try {
-    try {
-      await pool.query(
-        "UPDATE users SET expo_push_token = $1, push_platform = $2 WHERE user_id = $3",
-        [push_token.trim(), platform, userId]
-      );
-    } catch {
-      await pool.query(
-        "UPDATE users SET expo_push_token = $1 WHERE user_id = $2",
-        [push_token.trim(), userId]
-      );
+    const updateQueries = [
+      {
+        sql: `UPDATE users
+              SET expo_push_token = $1,
+                  push_platform = $2,
+                  push_token_type = $3,
+                  push_environment = $4
+              WHERE user_id = $5`,
+        params: [
+          push_token.trim(),
+          platform,
+          resolvedTokenType,
+          environment,
+          userId,
+        ],
+      },
+      {
+        sql: "UPDATE users SET expo_push_token = $1, push_platform = $2 WHERE user_id = $3",
+        params: [push_token.trim(), platform, userId],
+      },
+      {
+        sql: "UPDATE users SET expo_push_token = $1 WHERE user_id = $2",
+        params: [push_token.trim(), userId],
+      },
+    ];
+
+    let updated = false;
+    for (const query of updateQueries) {
+      try {
+        await pool.query(query.sql, query.params);
+        updated = true;
+        break;
+      } catch {
+        continue;
+      }
     }
+
+    if (!updated) {
+      throw new Error("Failed to update push token columns");
+    }
+
     res.status(200).json({
       message: "Push token registered",
       push_platform: platform,
+      push_token_type: resolvedTokenType,
+      push_environment: environment,
       push_app_id: typeof push_app_id === "string" ? push_app_id : null,
     });
   } catch (error) {

@@ -1,5 +1,5 @@
 import { App, cert, getApp, getApps, initializeApp } from "firebase-admin/app";
-import { getMessaging } from "firebase-admin/messaging";
+import { getMessaging, Message } from "firebase-admin/messaging";
 import { pool } from "../config/dp";
 import { AppVersionSettings } from "./appVersionConfig";
 
@@ -32,35 +32,76 @@ function ensureFirebaseApp(): App {
 export type PushRecipient = {
   token: string;
   platform: string | null;
+  tokenType: string | null;
+  environment: string | null;
+};
+
+type PushTokenRow = {
+  expo_push_token: string;
+  push_platform: string | null;
+  push_token_type: string | null;
+  push_environment: string | null;
 };
 
 function isLegacyExpoToken(token: string): boolean {
   return token.startsWith("ExponentPushToken[");
 }
 
+function isIosRecipient(recipient: PushRecipient): boolean {
+  if (recipient.platform === "ios") {
+    return true;
+  }
+  return recipient.tokenType === "apns";
+}
+
+function isAndroidRecipient(recipient: PushRecipient): boolean {
+  if (recipient.platform === "android") {
+    return true;
+  }
+  return recipient.tokenType === "fcm";
+}
+
+function mapPushTokenRow(row: PushTokenRow): PushRecipient {
+  return {
+    token: row.expo_push_token.trim(),
+    platform: row.push_platform,
+    tokenType: row.push_token_type,
+    environment: row.push_environment,
+  };
+}
+
 export async function getAllUserPushTokens(): Promise<PushRecipient[]> {
+  const queries = [
+    `SELECT DISTINCT expo_push_token, push_platform, push_token_type, push_environment
+     FROM users
+     WHERE expo_push_token IS NOT NULL
+       AND TRIM(expo_push_token) <> ''`,
+    `SELECT DISTINCT expo_push_token, push_platform, NULL AS push_token_type, NULL AS push_environment
+     FROM users
+     WHERE expo_push_token IS NOT NULL
+       AND TRIM(expo_push_token) <> ''`,
+    `SELECT DISTINCT expo_push_token, NULL AS push_platform, NULL AS push_token_type, NULL AS push_environment
+     FROM users
+     WHERE expo_push_token IS NOT NULL
+       AND TRIM(expo_push_token) <> ''`,
+  ];
+
   let result;
-  try {
-    result = await pool.query(
-      `SELECT DISTINCT expo_push_token, push_platform
-       FROM users
-       WHERE expo_push_token IS NOT NULL
-         AND TRIM(expo_push_token) <> ''`
-    );
-  } catch {
-    result = await pool.query(
-      `SELECT DISTINCT expo_push_token, NULL AS push_platform
-       FROM users
-       WHERE expo_push_token IS NOT NULL
-         AND TRIM(expo_push_token) <> ''`
-    );
+  for (const query of queries) {
+    try {
+      result = await pool.query(query);
+      break;
+    } catch {
+      continue;
+    }
+  }
+
+  if (!result) {
+    return [];
   }
 
   return result.rows
-    .map((row: { expo_push_token: string; push_platform: string | null }) => ({
-      token: row.expo_push_token.trim(),
-      platform: row.push_platform,
-    }))
+    .map((row: PushTokenRow) => mapPushTokenRow(row))
     .filter(
       (recipient: PushRecipient) =>
         recipient.token.length > 0 && !isLegacyExpoToken(recipient.token)
@@ -84,6 +125,48 @@ function buildVersionUpdateMessage(
   };
 }
 
+function buildIosApnsConfig(
+  title: string,
+  body: string,
+  environment: string | null
+): NonNullable<Message["apns"]> {
+  const apnsHeaders: Record<string, string> = {
+    "apns-priority": "10",
+    "apns-push-type": "alert",
+  };
+
+  // Dev/TestFlight debug builds register sandbox tokens; App Store uses production.
+  // FCM routes to the correct APNs endpoint from the device token, but we persist
+  // push_environment from the client for logging and future routing.
+  if (environment === "sandbox" || environment === "production") {
+    apnsHeaders["apns-expiration"] = String(Math.floor(Date.now() / 1000) + 86400);
+  }
+
+  return {
+    headers: apnsHeaders,
+    payload: {
+      aps: {
+        alert: {
+          title,
+          body,
+        },
+        sound: "default",
+        "mutable-content": 1,
+      },
+    },
+  };
+}
+
+function buildAndroidConfig(): NonNullable<Message["android"]> {
+  return {
+    priority: "high",
+    notification: {
+      channelId: ANDROID_NOTIFICATION_CHANNEL,
+      icon: "notification_icon",
+    },
+  };
+}
+
 async function sendFcmToRecipient(
   recipient: PushRecipient,
   title: string,
@@ -93,34 +176,42 @@ async function sendFcmToRecipient(
   const app = ensureFirebaseApp();
   const messaging = getMessaging(app);
 
-  if (recipient.platform === "ios") {
-    await messaging.send({
-      token: recipient.token,
-      notification: { title, body },
-      data,
-      apns: {
-        payload: {
-          aps: {
-            sound: "default",
-          },
-        },
-      },
-    });
+  const useIosPath = isIosRecipient(recipient);
+  const useAndroidPath = isAndroidRecipient(recipient);
+
+  if (!useIosPath && !useAndroidPath) {
+    console.warn(
+      `Skipping push token with unknown platform/type: platform=${recipient.platform}, tokenType=${recipient.tokenType}`
+    );
     return;
   }
 
-  await messaging.send({
+  if (useIosPath) {
+    const message: Message = {
+      token: recipient.token,
+      notification: { title, body },
+      data,
+      apns: buildIosApnsConfig(title, body, recipient.environment),
+    };
+
+    await messaging.send(message);
+    console.log(
+      `APNs notification sent (${recipient.environment ?? "unknown-env"}) for token ${recipient.token.slice(0, 12)}...`
+    );
+    return;
+  }
+
+  const message: Message = {
     token: recipient.token,
     notification: { title, body },
     data,
-    android: {
-      priority: "high",
-      notification: {
-        channelId: ANDROID_NOTIFICATION_CHANNEL,
-        icon: "notification_icon",
-      },
-    },
-  });
+    android: buildAndroidConfig(),
+  };
+
+  await messaging.send(message);
+  console.log(
+    `FCM Android notification sent for token ${recipient.token.slice(0, 12)}...`
+  );
 }
 
 export type VersionNotificationResult = {
@@ -168,7 +259,7 @@ export async function sendVersionUpdateNotificationsInBatches(
         await sendFcmToRecipient(recipient, title, body, data);
       } catch (error) {
         console.error(
-          `FCM notification failed for token ${recipient.token.slice(0, 12)}...:`,
+          `Push notification failed (platform=${recipient.platform}, type=${recipient.tokenType}, env=${recipient.environment}, token=${recipient.token.slice(0, 12)}...):`,
           error
         );
       }

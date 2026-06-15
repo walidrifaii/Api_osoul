@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS users (
   is_active BOOLEAN NOT NULL DEFAULT FALSE,
   expo_push_token TEXT,
   push_platform TEXT,
+  push_token_type TEXT,
+  push_environment TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
