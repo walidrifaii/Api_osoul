@@ -393,14 +393,9 @@ export const registerPushToken = async (req: Request, res: Response) => {
     platform = "android";
   }
 
-  if (platform === "ios" && tokenType && tokenType !== "apns") {
-    res.status(400).json({
-      message: "iOS push tokens must use push_token_type apns.",
-    });
-    return;
-  }
-
-  if (platform === "android" && tokenType && tokenType !== "fcm") {
+  // iOS + fcm is valid: Expo/Firebase on iOS returns an FCM registration token.
+  // Android + apns is not valid.
+  if (platform === "android" && tokenType === "apns") {
     res.status(400).json({
       message: "Android push tokens must use push_token_type fcm.",
     });
@@ -408,7 +403,7 @@ export const registerPushToken = async (req: Request, res: Response) => {
   }
 
   const resolvedTokenType =
-    tokenType ?? (platform === "ios" ? "apns" : platform === "android" ? "fcm" : null);
+    tokenType ?? (platform === "ios" ? "fcm" : platform === "android" ? "fcm" : null);
 
   try {
     const updateQueries = [

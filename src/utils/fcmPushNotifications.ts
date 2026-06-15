@@ -55,6 +55,10 @@ function isIosRecipient(recipient: PushRecipient): boolean {
 }
 
 function isAndroidRecipient(recipient: PushRecipient): boolean {
+  // iOS may register an FCM registration token; delivery still goes through APNs.
+  if (recipient.platform === "ios") {
+    return false;
+  }
   if (recipient.platform === "android") {
     return true;
   }
