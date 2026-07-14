@@ -314,10 +314,8 @@ export function queueVersionUpdateNotifications(
 }
 
 export type AnnouncementPayload = {
-  title_ar: string;
-  title_en: string;
-  body_ar: string;
-  body_en: string;
+  title: string;
+  body: string;
 };
 
 export type AnnouncementNotificationResult = {
@@ -327,25 +325,19 @@ export type AnnouncementNotificationResult = {
   totalBatches: number;
 };
 
-function buildAnnouncementMessage(
-  payload: AnnouncementPayload,
-  language: "ar" | "en"
-): {
+function buildAnnouncementMessage(payload: AnnouncementPayload): {
   title: string;
   body: string;
   data: Record<string, string>;
 } {
-  const useEnglish = language === "en";
   return {
-    title: useEnglish ? payload.title_en : payload.title_ar,
-    body: useEnglish ? payload.body_en : payload.body_ar,
+    title: payload.title,
+    body: payload.body,
     data: {
       type: "announcement",
-      language,
-      title_ar: payload.title_ar,
-      title_en: payload.title_en,
-      body_ar: payload.body_ar,
-      body_en: payload.body_en,
+      language: "ar",
+      title_ar: payload.title,
+      body_ar: payload.body,
     },
   };
 }
@@ -364,6 +356,7 @@ export async function sendAnnouncementNotificationsInBatches(
     };
   }
 
+  const { title, body, data } = buildAnnouncementMessage(payload);
   const totalBatches = Math.ceil(recipients.length / BATCH_SIZE);
 
   for (let index = 0; index < recipients.length; index += BATCH_SIZE) {
@@ -372,14 +365,10 @@ export async function sendAnnouncementNotificationsInBatches(
 
     for (const recipient of batch) {
       try {
-        const { title, body, data } = buildAnnouncementMessage(
-          payload,
-          recipient.preferredLanguage
-        );
         await sendFcmToRecipient(recipient, title, body, data);
       } catch (error) {
         console.error(
-          `Announcement push failed (lang=${recipient.preferredLanguage}, platform=${recipient.platform}, type=${recipient.tokenType}, env=${recipient.environment}, token=${recipient.token.slice(0, 12)}...):`,
+          `Announcement push failed (platform=${recipient.platform}, type=${recipient.tokenType}, env=${recipient.environment}, token=${recipient.token.slice(0, 12)}...):`,
           error
         );
       }

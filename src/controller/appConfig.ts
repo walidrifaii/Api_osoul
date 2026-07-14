@@ -88,29 +88,21 @@ export const getAppVersionSettings = async (_req: Request, res: Response) => {
 };
 
 function parseAnnouncementBody(body: Request["body"]): AnnouncementPayload | null {
-  const titleAr = body?.title_ar;
-  const titleEn = body?.title_en;
-  const bodyAr = body?.body_ar;
-  const bodyEn = body?.body_en;
+  const title = body?.title ?? body?.title_ar;
+  const message = body?.body ?? body?.body_ar;
 
   if (
-    typeof titleAr !== "string" ||
-    typeof titleEn !== "string" ||
-    typeof bodyAr !== "string" ||
-    typeof bodyEn !== "string" ||
-    !titleAr.trim() ||
-    !titleEn.trim() ||
-    !bodyAr.trim() ||
-    !bodyEn.trim()
+    typeof title !== "string" ||
+    typeof message !== "string" ||
+    !title.trim() ||
+    !message.trim()
   ) {
     return null;
   }
 
   return {
-    title_ar: titleAr.trim(),
-    title_en: titleEn.trim(),
-    body_ar: bodyAr.trim(),
-    body_en: bodyEn.trim(),
+    title: title.trim(),
+    body: message.trim(),
   };
 }
 
@@ -119,8 +111,7 @@ export const sendAnnouncement = async (req: Request, res: Response) => {
 
   if (!payload) {
     res.status(400).json({
-      message:
-        "Invalid announcement. Provide non-empty title_ar, title_en, body_ar, and body_en.",
+      message: "Invalid announcement. Provide non-empty title and body (Arabic).",
     });
     return;
   }
