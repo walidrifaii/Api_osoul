@@ -5,8 +5,10 @@ import {
   AppVersionSettings,
 } from "../utils/appVersionConfig";
 import {
+  AnnouncementPayload,
   getAllUserPushTokens,
   hasVersionChanged,
+  queueAnnouncementNotifications,
   queueVersionUpdateNotifications,
 } from "../utils/fcmPushNotifications";
 
@@ -82,6 +84,71 @@ export const getAppVersionSettings = async (_req: Request, res: Response) => {
   } catch (error) {
     console.error("Error loading app version settings:", error);
     res.status(500).json({ message: "Failed to load app version settings" });
+  }
+};
+
+function parseAnnouncementBody(body: Request["body"]): AnnouncementPayload | null {
+  const titleAr = body?.title_ar;
+  const titleEn = body?.title_en;
+  const bodyAr = body?.body_ar;
+  const bodyEn = body?.body_en;
+
+  if (
+    typeof titleAr !== "string" ||
+    typeof titleEn !== "string" ||
+    typeof bodyAr !== "string" ||
+    typeof bodyEn !== "string" ||
+    !titleAr.trim() ||
+    !titleEn.trim() ||
+    !bodyAr.trim() ||
+    !bodyEn.trim()
+  ) {
+    return null;
+  }
+
+  return {
+    title_ar: titleAr.trim(),
+    title_en: titleEn.trim(),
+    body_ar: bodyAr.trim(),
+    body_en: bodyEn.trim(),
+  };
+}
+
+export const sendAnnouncement = async (req: Request, res: Response) => {
+  const payload = parseAnnouncementBody(req.body);
+
+  if (!payload) {
+    res.status(400).json({
+      message:
+        "Invalid announcement. Provide non-empty title_ar, title_en, body_ar, and body_en.",
+    });
+    return;
+  }
+
+  try {
+    const tokens = await getAllUserPushTokens();
+    const notifications = {
+      queued: tokens.length > 0,
+      totalRecipients: tokens.length,
+      batchSize: 10,
+      totalBatches: Math.ceil(tokens.length / 10) || 0,
+    };
+
+    if (tokens.length > 0) {
+      queueAnnouncementNotifications(payload);
+    }
+
+    res.status(200).json({
+      message:
+        tokens.length > 0
+          ? "Announcement is being sent to users in batches"
+          : "No users with registered push tokens",
+      announcement: payload,
+      notifications,
+    });
+  } catch (error) {
+    console.error("Error sending announcement:", error);
+    res.status(500).json({ message: "Failed to send announcement" });
   }
 };
 

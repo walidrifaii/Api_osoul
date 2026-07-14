@@ -2,6 +2,7 @@ import express from "express";
 import {
   getAppVersion,
   getAppVersionSettings,
+  sendAnnouncement,
   updateAppVersionSettings,
 } from "../controller/appConfig";
 
@@ -12,3 +13,4 @@ publicAppConfigRouter.get("/app-version", getAppVersion);
 
 protectedAppConfigRouter.get("/app-version-settings", getAppVersionSettings);
 protectedAppConfigRouter.put("/app-version-settings", updateAppVersionSettings);
+protectedAppConfigRouter.post("/send-announcement", sendAnnouncement);

@@ -294,3 +294,93 @@ export function queueVersionUpdateNotifications(
     console.error("Version update notification job failed:", error);
   });
 }
+
+export type AnnouncementPayload = {
+  title_ar: string;
+  title_en: string;
+  body_ar: string;
+  body_en: string;
+};
+
+export type AnnouncementNotificationResult = {
+  started: boolean;
+  totalRecipients: number;
+  batchSize: number;
+  totalBatches: number;
+};
+
+function buildAnnouncementMessage(payload: AnnouncementPayload): {
+  title: string;
+  body: string;
+  data: Record<string, string>;
+} {
+  // Arabic is the default display language; English is included for the mobile app.
+  return {
+    title: payload.title_ar,
+    body: payload.body_ar,
+    data: {
+      type: "announcement",
+      title_ar: payload.title_ar,
+      title_en: payload.title_en,
+      body_ar: payload.body_ar,
+      body_en: payload.body_en,
+    },
+  };
+}
+
+export async function sendAnnouncementNotificationsInBatches(
+  payload: AnnouncementPayload
+): Promise<AnnouncementNotificationResult> {
+  const recipients = await getAllUserPushTokens();
+
+  if (recipients.length === 0) {
+    return {
+      started: false,
+      totalRecipients: 0,
+      batchSize: BATCH_SIZE,
+      totalBatches: 0,
+    };
+  }
+
+  const { title, body, data } = buildAnnouncementMessage(payload);
+  const totalBatches = Math.ceil(recipients.length / BATCH_SIZE);
+
+  for (let index = 0; index < recipients.length; index += BATCH_SIZE) {
+    const batch = recipients.slice(index, index + BATCH_SIZE);
+    const batchNumber = Math.floor(index / BATCH_SIZE) + 1;
+
+    for (const recipient of batch) {
+      try {
+        await sendFcmToRecipient(recipient, title, body, data);
+      } catch (error) {
+        console.error(
+          `Announcement push failed (platform=${recipient.platform}, type=${recipient.tokenType}, env=${recipient.environment}, token=${recipient.token.slice(0, 12)}...):`,
+          error
+        );
+      }
+    }
+
+    console.log(
+      `Announcement notifications: sent batch ${batchNumber}/${totalBatches} (${batch.length} users)`
+    );
+
+    if (index + BATCH_SIZE < recipients.length) {
+      await sleep(BATCH_DELAY_MS);
+    }
+  }
+
+  return {
+    started: true,
+    totalRecipients: recipients.length,
+    batchSize: BATCH_SIZE,
+    totalBatches,
+  };
+}
+
+export function queueAnnouncementNotifications(
+  payload: AnnouncementPayload
+): void {
+  void sendAnnouncementNotificationsInBatches(payload).catch((error) => {
+    console.error("Announcement notification job failed:", error);
+  });
+}
