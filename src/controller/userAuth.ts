@@ -325,6 +325,17 @@ function parsePushEnvironment(value: unknown): "sandbox" | "production" | null {
   return value === "sandbox" || value === "production" ? value : null;
 }
 
+function parsePreferredLanguage(value: unknown): "ar" | "en" {
+  if (typeof value !== "string") {
+    return "ar";
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "en" || normalized.startsWith("en-") || normalized === "english") {
+    return "en";
+  }
+  return "ar";
+}
+
 export const registerPushToken = async (req: Request, res: Response) => {
   const authReq = req as AuthRequest;
   const user = authReq.user as { user_id?: string } | undefined;
@@ -335,6 +346,9 @@ export const registerPushToken = async (req: Request, res: Response) => {
     push_token_type,
     push_environment,
     push_app_id,
+    preferred_language,
+    app_language,
+    language,
   } = req.body;
   const STANDALONE_APP_ID = "com.vesco.osoul";
 
@@ -380,6 +394,9 @@ export const registerPushToken = async (req: Request, res: Response) => {
   let platform = parsePushPlatform(push_platform);
   const tokenType = parsePushTokenType(push_token_type);
   const environment = parsePushEnvironment(push_environment);
+  const preferredLanguage = parsePreferredLanguage(
+    preferred_language ?? app_language ?? language
+  );
 
   if (!platform && tokenType === "apns") {
     platform = "ios";
@@ -407,6 +424,23 @@ export const registerPushToken = async (req: Request, res: Response) => {
 
   try {
     const updateQueries = [
+      {
+        sql: `UPDATE users
+              SET expo_push_token = $1,
+                  push_platform = $2,
+                  push_token_type = $3,
+                  push_environment = $4,
+                  preferred_language = $5
+              WHERE user_id = $6`,
+        params: [
+          push_token.trim(),
+          platform,
+          resolvedTokenType,
+          environment,
+          preferredLanguage,
+          userId,
+        ],
+      },
       {
         sql: `UPDATE users
               SET expo_push_token = $1,
@@ -452,6 +486,7 @@ export const registerPushToken = async (req: Request, res: Response) => {
       push_platform: platform,
       push_token_type: resolvedTokenType,
       push_environment: environment,
+      preferred_language: preferredLanguage,
       push_app_id: typeof push_app_id === "string" ? push_app_id : null,
     });
   } catch (error) {

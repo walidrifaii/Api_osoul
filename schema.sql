@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS users (
   push_platform TEXT,
   push_token_type TEXT,
   push_environment TEXT,
+  preferred_language TEXT DEFAULT 'ar',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

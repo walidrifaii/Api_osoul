@@ -34,6 +34,7 @@ export type PushRecipient = {
   platform: string | null;
   tokenType: string | null;
   environment: string | null;
+  preferredLanguage: "ar" | "en";
 };
 
 type PushTokenRow = {
@@ -41,7 +42,19 @@ type PushTokenRow = {
   push_platform: string | null;
   push_token_type: string | null;
   push_environment: string | null;
+  preferred_language?: string | null;
 };
+
+function normalizePreferredLanguage(value: unknown): "ar" | "en" {
+  if (typeof value !== "string") {
+    return "ar";
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "en" || normalized.startsWith("en-")) {
+    return "en";
+  }
+  return "ar";
+}
 
 function isLegacyExpoToken(token: string): boolean {
   return token.startsWith("ExponentPushToken[");
@@ -71,20 +84,25 @@ function mapPushTokenRow(row: PushTokenRow): PushRecipient {
     platform: row.push_platform,
     tokenType: row.push_token_type,
     environment: row.push_environment,
+    preferredLanguage: normalizePreferredLanguage(row.preferred_language),
   };
 }
 
 export async function getAllUserPushTokens(): Promise<PushRecipient[]> {
   const queries = [
-    `SELECT DISTINCT expo_push_token, push_platform, push_token_type, push_environment
+    `SELECT DISTINCT expo_push_token, push_platform, push_token_type, push_environment, preferred_language
      FROM users
      WHERE expo_push_token IS NOT NULL
        AND TRIM(expo_push_token) <> ''`,
-    `SELECT DISTINCT expo_push_token, push_platform, NULL AS push_token_type, NULL AS push_environment
+    `SELECT DISTINCT expo_push_token, push_platform, push_token_type, push_environment, NULL AS preferred_language
      FROM users
      WHERE expo_push_token IS NOT NULL
        AND TRIM(expo_push_token) <> ''`,
-    `SELECT DISTINCT expo_push_token, NULL AS push_platform, NULL AS push_token_type, NULL AS push_environment
+    `SELECT DISTINCT expo_push_token, push_platform, NULL AS push_token_type, NULL AS push_environment, NULL AS preferred_language
+     FROM users
+     WHERE expo_push_token IS NOT NULL
+       AND TRIM(expo_push_token) <> ''`,
+    `SELECT DISTINCT expo_push_token, NULL AS push_platform, NULL AS push_token_type, NULL AS push_environment, NULL AS preferred_language
      FROM users
      WHERE expo_push_token IS NOT NULL
        AND TRIM(expo_push_token) <> ''`,
@@ -309,17 +327,21 @@ export type AnnouncementNotificationResult = {
   totalBatches: number;
 };
 
-function buildAnnouncementMessage(payload: AnnouncementPayload): {
+function buildAnnouncementMessage(
+  payload: AnnouncementPayload,
+  language: "ar" | "en"
+): {
   title: string;
   body: string;
   data: Record<string, string>;
 } {
-  // Arabic is the default display language; English is included for the mobile app.
+  const useEnglish = language === "en";
   return {
-    title: payload.title_ar,
-    body: payload.body_ar,
+    title: useEnglish ? payload.title_en : payload.title_ar,
+    body: useEnglish ? payload.body_en : payload.body_ar,
     data: {
       type: "announcement",
+      language,
       title_ar: payload.title_ar,
       title_en: payload.title_en,
       body_ar: payload.body_ar,
@@ -342,7 +364,6 @@ export async function sendAnnouncementNotificationsInBatches(
     };
   }
 
-  const { title, body, data } = buildAnnouncementMessage(payload);
   const totalBatches = Math.ceil(recipients.length / BATCH_SIZE);
 
   for (let index = 0; index < recipients.length; index += BATCH_SIZE) {
@@ -351,10 +372,14 @@ export async function sendAnnouncementNotificationsInBatches(
 
     for (const recipient of batch) {
       try {
+        const { title, body, data } = buildAnnouncementMessage(
+          payload,
+          recipient.preferredLanguage
+        );
         await sendFcmToRecipient(recipient, title, body, data);
       } catch (error) {
         console.error(
-          `Announcement push failed (platform=${recipient.platform}, type=${recipient.tokenType}, env=${recipient.environment}, token=${recipient.token.slice(0, 12)}...):`,
+          `Announcement push failed (lang=${recipient.preferredLanguage}, platform=${recipient.platform}, type=${recipient.tokenType}, env=${recipient.environment}, token=${recipient.token.slice(0, 12)}...):`,
           error
         );
       }
