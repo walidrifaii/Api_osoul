@@ -77,6 +77,23 @@ export const createPost = async (req: Request, res: Response) => {
   let imagePaths: string[] = [];
 
   try {
+    console.log("CREATE_POST_META", {
+      contentType: req.headers["content-type"],
+      bodyKeys: Object.keys(req.body || {}),
+      fileCount: Array.isArray(req.files)
+        ? req.files.length
+        : req.file
+          ? 1
+          : 0,
+      fileSizes: Array.isArray(req.files)
+        ? (req.files as Express.Multer.File[]).map((f) => ({
+            name: f.originalname,
+            mime: f.mimetype,
+            size: f.size,
+          }))
+        : [],
+    });
+
     let {
       user_id,
       caption,
@@ -196,9 +213,16 @@ export const createPost = async (req: Request, res: Response) => {
 
     const imageUploadPromises: Promise<{ url: string; path: string }>[] = [];
 
-    if (req.files && (req.files as Express.Multer.File[]).length > 0) {
-      const files = req.files as Express.Multer.File[];
-      for (const file of files) {
+    // Some clients send files under "image" / "photo" instead of "images".
+    const multipartFiles = [
+      ...((req.files as Express.Multer.File[] | undefined) ?? []),
+    ];
+    if (multipartFiles.length === 0 && req.file) {
+      multipartFiles.push(req.file);
+    }
+
+    if (multipartFiles.length > 0) {
+      for (const file of multipartFiles) {
         imageUploadPromises.push(
           uploadImageBuffer(
             file.buffer,
@@ -209,16 +233,17 @@ export const createPost = async (req: Request, res: Response) => {
       }
     }
 
-    if (images) {
-      const imageList = Array.isArray(images)
-        ? images
-        : typeof images === "string"
+    const rawImages = images ?? req.body.image ?? req.body.photos;
+    if (rawImages) {
+      const imageList = Array.isArray(rawImages)
+        ? rawImages
+        : typeof rawImages === "string"
           ? (() => {
               try {
-                const parsed = JSON.parse(images);
-                return Array.isArray(parsed) ? parsed : [images];
+                const parsed = JSON.parse(rawImages);
+                return Array.isArray(parsed) ? parsed : [rawImages];
               } catch {
-                return [images];
+                return [rawImages];
               }
             })()
           : [];
@@ -267,9 +292,13 @@ export const createPost = async (req: Request, res: Response) => {
 
     const result = await pool.query(query, values);
     const insertedId = result.rows[0].id;
-    res.status(201).json({
+
+    // Use 200: many mobile clients treat only statusCode == 200 as success.
+    res.status(200).json({
       message: "Post created successfully",
       postId: insertedId,
+      id: insertedId,
+      success: true,
       isSuccess: true,
     });
   } catch (error) {
@@ -284,7 +313,12 @@ export const createPost = async (req: Request, res: Response) => {
       message.includes("HEIC") ||
       message.includes("JPG or PNG")
     ) {
-      res.status(400).json({ error: message, isSuccess: false });
+      res.status(400).json({
+        error: message,
+        message,
+        isSuccess: false,
+        success: false,
+      });
       return;
     }
 
@@ -292,6 +326,7 @@ export const createPost = async (req: Request, res: Response) => {
       error: "Failed to create post",
       message,
       isSuccess: false,
+      success: false,
     });
   }
 };

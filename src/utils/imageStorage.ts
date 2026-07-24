@@ -152,9 +152,40 @@ export async function uploadImageBuffer(
   filename: string,
   mimeType = "image/jpeg"
 ): Promise<UploadedImage> {
+  let uploadBuffer = buffer;
+  let uploadMime = mimeType || "image/jpeg";
+  let uploadName = filename || uniqueFilename("jpg");
+
+  const lowerName = uploadName.toLowerCase();
+  const lowerMime = uploadMime.toLowerCase();
+  const isHeic =
+    isHeicBuffer(uploadBuffer) ||
+    lowerMime === "image/heic" ||
+    lowerMime === "image/heif" ||
+    lowerName.endsWith(".heic") ||
+    lowerName.endsWith(".heif");
+
+  if (isHeic) {
+    try {
+      uploadBuffer = await convertHeicToJpeg(uploadBuffer);
+      uploadMime = "image/jpeg";
+      uploadName = uniqueFilename("jpg");
+    } catch {
+      throw new Error(
+        "Failed to convert HEIC image. Please use JPG or PNG photos."
+      );
+    }
+  } else {
+    const detected = detectImageMime(uploadBuffer);
+    uploadMime = detected.mimeType;
+    if (!lowerName.includes(".")) {
+      uploadName = uniqueFilename(detected.extension);
+    }
+  }
+
   const formData = new FormData();
-  const blob = new Blob([new Uint8Array(buffer)], { type: mimeType });
-  formData.append("file", blob, filename);
+  const blob = new Blob([new Uint8Array(uploadBuffer)], { type: uploadMime });
+  formData.append("file", blob, uploadName);
 
   const response = await fetch(UPLOAD_URL, {
     method: "POST",
