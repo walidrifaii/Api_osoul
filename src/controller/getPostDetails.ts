@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { pool } from "../config/dp";
 import { Request, Response } from "express";
-import { isAdminUser } from "../utils/helper";
+import { canModeratePosts, getAuthActor } from "../utils/helper";
 import { normalizeImageList } from "../utils/imageStorage";
 
 const MIN_VIEW_INCREMENT = 1;
@@ -106,6 +106,7 @@ export const incrementViewCount = async (req: Request, res: Response) => {
 };
 
 export const deletePost = async (req: Request, res: Response) => {
+  // Kept for compatibility; protectedPostDetRouter uses userPosts.deletePost.
   const postId = req.params.id;
   try {
     const result = await pool.query(
@@ -113,19 +114,16 @@ export const deletePost = async (req: Request, res: Response) => {
       [postId]
     );
     if (result.rowCount === 0) {
-      console.log("Returning 404: Post not found");
       return res.status(404).json({ message: "Post not found" });
     }
-    console.log("Returning 200: Post deleted successfully");
     res.status(200).json({ message: "Post deleted successfully" });
   } catch (err) {
     console.error("Error deleting post:", err);
-    console.log("Returning 500: Server error while deleting post");
     res.status(500).json({ message: "Server error while deleting post" });
   }
 };
 
-// PUT /posts/:id
+// PUT /edit-post/:id
 export const editPost = async (req: Request, res: Response) => {
   const {
     caption,
@@ -140,29 +138,46 @@ export const editPost = async (req: Request, res: Response) => {
     rooms,
     toilets,
     land_area,
-    // images, // base64 strings
     address,
     latitude,
     longitude,
-    post_user_id,
-    curr_user_id,
   } = req.body;
   console.log("EditPost body:", req.body);
   const post_id = req.params.id;
-  // Allow admin user to bypass checks
-  const isAdmin = await isAdminUser(curr_user_id);
-  if (!isAdmin) {
-    if (!post_user_id || !curr_user_id) {
-      console.log("Returning 400: User IDs are required");
-      res.status(400).json({ message: "User IDs are required" });
+  const actor = getAuthActor(req);
+  const isDirectValue =
+    is_direct !== undefined && is_direct !== null && is_direct !== ""
+      ? is_direct
+      : req.body.isDirect;
+
+  const isModerator = await canModeratePosts(actor);
+  if (!isModerator) {
+    if (!actor.userId) {
+      res.status(401).json({ message: "Unauthorized" });
       return;
     }
-    if (post_user_id !== curr_user_id) {
-      console.log("Returning 403: You are not authorized");
+    const ownership = await pool.query(
+      "SELECT user_id FROM posts WHERE id = $1",
+      [post_id]
+    );
+    if (ownership.rowCount === 0) {
+      res.status(404).json({ message: "Post not found" });
+      return;
+    }
+    if (ownership.rows[0].user_id !== actor.userId) {
       res.status(403).json({ message: "You are not authorized" });
       return;
     }
   }
+
+  const hasCoords =
+    latitude !== undefined &&
+    latitude !== null &&
+    latitude !== "" &&
+    longitude !== undefined &&
+    longitude !== null &&
+    longitude !== "";
+  const hasAddress = address !== undefined;
 
   try {
     const updateQuery = `
@@ -179,53 +194,54 @@ export const editPost = async (req: Request, res: Response) => {
         rooms        = $10,
         toilets      = $11,
         land_area    = $12,
-        address      = CASE WHEN $13::text IS NOT NULL THEN $13 ELSE NULL END,
+        address      = CASE
+                         WHEN $13::boolean THEN $14::text
+                         ELSE address
+                       END,
         location     = CASE
-                         WHEN $14::double precision IS NOT NULL
-                          AND $15::double precision IS NOT NULL
-                         THEN ST_MakePoint($15, $14)::geography
-                         ELSE NULL
-                       END
-      WHERE id = $16
+                         WHEN $15::boolean
+                          AND $16::double precision IS NOT NULL
+                          AND $17::double precision IS NOT NULL
+                         THEN ST_MakePoint($17, $16)::geography
+                         ELSE location
+                       END,
+        updated_at   = CURRENT_TIMESTAMP
+      WHERE id = $18
       RETURNING *;
     `;
 
     const result = await pool.query(updateQuery, [
-      caption, // $1
-      city_id, // $2
-      sale_type_id, // $3
-      category_id, // $4
-      is_direct, // $5
-      condition_id, // $6
-      area ?? null, // $7
-      building ?? null, // $8
-      price, // $9
-      rooms ?? null, // $10
-      toilets ?? null, // $11
-      land_area ?? null, // $12
-      // newImageUrls, // $13
-      // newPublicIds, // $14
-      address ?? null, // $15 13
-      latitude ?? null, // $16 14
-      longitude ?? null, // $17 15
-      post_id, // $18 16
+      caption,
+      city_id,
+      sale_type_id,
+      category_id,
+      isDirectValue,
+      condition_id,
+      area ?? null,
+      building ?? null,
+      price,
+      rooms ?? null,
+      toilets ?? null,
+      land_area ?? null,
+      hasAddress,
+      hasAddress ? address ?? null : null,
+      hasCoords,
+      hasCoords ? Number(latitude) : null,
+      hasCoords ? Number(longitude) : null,
+      post_id,
     ]);
 
     if (!result.rows.length) {
-      console.log("No post found with ID:", post_id);
-      console.log("Returning 404: Post not found or not yours");
       res.status(404).json({ message: "Post not found or not yours" });
       return;
     }
 
-    console.log("Returning 200: Post updated successfully");
     res.json({
       message: "Post updated successfully",
       post: result.rows[0],
     });
   } catch (err) {
     console.error("EditPost error:", err);
-    console.log("Returning 500: Server error");
     res.status(500).json({ message: "Server error" });
   }
 };

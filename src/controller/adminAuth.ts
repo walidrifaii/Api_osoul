@@ -32,7 +32,7 @@ export const RegAdmin = async (req: Request, res: Response) => {
     const token = jwt.sign(
       { admin_id: admin.admin_id, username: admin.username },
       process.env.JWT_SECRET as string,
-      { expiresIn: "1hr" }
+      { expiresIn: "7d" }
     );
     res.status(201).json({
       message: "Admin registered successfully",
@@ -74,7 +74,7 @@ export const LoginAdmin = async (req: Request, res: Response) => {
     const token = jwt.sign(
       { admin_id: admin.admin_id, username: admin.username },
       process.env.JWT_SECRET as string,
-      { expiresIn: "1hr" }
+      { expiresIn: "7d" }
     );
 
     res.status(200).json({

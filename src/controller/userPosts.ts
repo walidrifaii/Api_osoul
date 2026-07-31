@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { pool } from "../config/dp";
 import { deleteImages, normalizeImageList } from "../utils/imageStorage";
-import { isAdminUser } from "../utils/helper";
+import { canModeratePosts, getAuthActor } from "../utils/helper";
 
 export const getSaved = async (req: Request, res: Response) => {
   const userId = req.body.user_id;
@@ -367,40 +367,39 @@ export const savePost = async (req: Request, res: Response) => {
 };
 
 export const deletePost = async (req: Request, res: Response) => {
-  const post_id = req.query.post_id;
-  const user_id = req.query.user_id;
-  console.log("Deleting post with ID:", post_id, "for user:", user_id);
-  if (!post_id || !user_id) {
-    console.error("Post ID and User ID are required");
-    res.status(400).json({ message: "Post ID and User ID are required" });
+  const post_id = (req.query.post_id ?? req.params.id) as string | undefined;
+  const actor = getAuthActor(req);
+  console.log("Deleting post with ID:", post_id, "actor:", actor);
+
+  if (!post_id) {
+    res.status(400).json({ message: "Post ID is required" });
     return;
   }
-  // If user is admin, skip ownership check
-  const adminCheck = await isAdminUser(user_id as string);
-  if (!adminCheck) {
-    const post = await getPostById(post_id as string);
-    if (!post || post.user_id !== user_id) {
-      console.error("Unauthorized or post not found");
-      res.status(403).json({ message: "Unauthorized or post not found" });
-      return;
-    }
-  }
-
-  console.log("Deleting post:", post_id);
 
   try {
+    const isModerator = await canModeratePosts(actor);
+    if (!isModerator) {
+      if (!actor.userId) {
+        res.status(401).json({ message: "Unauthorized" });
+        return;
+      }
+      const post = await getPostById(post_id);
+      if (!post || post.user_id !== actor.userId) {
+        res.status(403).json({ message: "Unauthorized or post not found" });
+        return;
+      }
+    }
+
     const fetchRes = await pool.query(
       `SELECT public_ids FROM posts WHERE id = $1`,
       [post_id]
     );
     if (fetchRes.rowCount === 0) {
-      console.log("Post not found");
       res.status(404).json({ message: "Post not found" });
       return;
     }
 
     const publicIds: string[] = fetchRes.rows[0].public_ids || [];
-
     if (publicIds.length > 0) {
       await deleteImages(publicIds);
     }
@@ -411,18 +410,14 @@ export const deletePost = async (req: Request, res: Response) => {
     );
 
     if (deleteRes.rows.length > 0) {
-      console.log("Post deleted successfully");
       res.status(200).json({ message: "Post deleted successfully" });
       return;
-    } else {
-      console.log("Post not found or unauthorized");
-      res.status(404).json({ message: "Post not found or unauthorized" });
-      return;
     }
+
+    res.status(404).json({ message: "Post not found or unauthorized" });
   } catch (error) {
     console.error("Error deleting post:", error);
     res.status(500).json({ message: "Internal server error" });
-    return;
   }
 };
 

@@ -24,6 +24,7 @@ import {
   publicAppConfigRouter,
   protectedAppConfigRouter,
 } from "./router/appConfigRoute";
+import deviceRoute from "./router/deviceRoute";
 
 const PORT = process.env.PORT || 3000;
 
@@ -96,6 +97,7 @@ app.get("/health", (_req, res) => {
 
 // Public routes (no auth required)
 app.use("/auth", authRoute);
+app.use("/devices", deviceRoute);
 app.use("/", publicPostsRouter);
 app.use("/", publicPostDetRouter);
 app.use("/", publicAdminRouter);

@@ -6,6 +6,7 @@ import {
   deleteUser,
   SendOTPController,
   registerPushToken,
+  unregisterPushToken,
 } from "../controller/userAuth";
 import { protect } from "../middleware/protect";
 
@@ -19,4 +20,5 @@ router.post("/verfiy-phone", verfiyUser);
 router.post("/delete-user", deleteUser);
 router.post("/send-otp", SendOTPController);
 router.post("/register-push-token", protect, registerPushToken);
+router.post("/unregister-push-token", protect, unregisterPushToken);
 export default router;

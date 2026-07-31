@@ -1,12 +1,39 @@
+import { Request } from "express";
+import { JwtPayload } from "jsonwebtoken";
 import { pool } from "../config/dp";
 import crypto from "crypto";
 import bcrypt from "bcrypt";
+import { AuthRequest } from "../middleware/protect";
 import {
   hashTestLoginOtp,
   isTestLoginPhone,
   normalizeQatarPhone,
   TEST_LOGIN_OTP,
 } from "./testAuth";
+
+/** App accounts that can moderate any listing (same IDs used in the mobile UI). */
+const STAFF_USER_IDS = new Set([
+  "801ae98c-66a3-40b6-a34b-9192d248636f",
+  "9d341dfe-7237-44fa-8eb2-fca783a67306",
+]);
+
+export type AuthActor = {
+  userId?: string;
+  adminId?: string;
+};
+
+export function getAuthActor(req: Request): AuthActor {
+  const user = (req as AuthRequest).user;
+  if (!user || typeof user === "string") return {};
+  const payload = user as JwtPayload & {
+    user_id?: string;
+    admin_id?: string;
+  };
+  return {
+    userId: typeof payload.user_id === "string" ? payload.user_id : undefined,
+    adminId: typeof payload.admin_id === "string" ? payload.admin_id : undefined,
+  };
+}
 
 export const getUserByPhone = async (user_phone: string) => {
   try {
@@ -34,6 +61,14 @@ export const isAdminUser = async (userId: string): Promise<boolean> => {
     return false;
   }
 };
+
+/** True for admins table JWT or known staff app users. */
+export async function canModeratePosts(actor: AuthActor): Promise<boolean> {
+  if (actor.adminId && (await isAdminUser(actor.adminId))) return true;
+  if (actor.userId && STAFF_USER_IDS.has(actor.userId)) return true;
+  if (actor.userId && (await isAdminUser(actor.userId))) return true;
+  return false;
+}
 
 export const sendOTP = async (phone: string) => {
   const normalizedPhone = normalizeQatarPhone(phone);

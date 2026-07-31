@@ -45,6 +45,36 @@ type PushTokenRow = {
   preferred_language?: string | null;
 };
 
+function dedupeRecipients(recipients: PushRecipient[]): PushRecipient[] {
+  const seen = new Set<string>();
+  const unique: PushRecipient[] = [];
+
+  for (const recipient of recipients) {
+    if (seen.has(recipient.token)) {
+      continue;
+    }
+    seen.add(recipient.token);
+    unique.push(recipient);
+  }
+
+  return unique;
+}
+
+async function queryPushTokenRowsWithFallback(
+  queries: string[]
+): Promise<PushTokenRow[]> {
+  for (const query of queries) {
+    try {
+      const result = await pool.query(query);
+      return result.rows as PushTokenRow[];
+    } catch {
+      continue;
+    }
+  }
+
+  return [];
+}
+
 function normalizePreferredLanguage(value: unknown): "ar" | "en" {
   if (typeof value !== "string") {
     return "ar";
@@ -89,7 +119,7 @@ function mapPushTokenRow(row: PushTokenRow): PushRecipient {
 }
 
 export async function getAllUserPushTokens(): Promise<PushRecipient[]> {
-  const queries = [
+  const userQueries = [
     `SELECT DISTINCT expo_push_token, push_platform, push_token_type, push_environment, preferred_language
      FROM users
      WHERE expo_push_token IS NOT NULL
@@ -108,26 +138,35 @@ export async function getAllUserPushTokens(): Promise<PushRecipient[]> {
        AND TRIM(expo_push_token) <> ''`,
   ];
 
-  let result;
-  for (const query of queries) {
-    try {
-      result = await pool.query(query);
-      break;
-    } catch {
-      continue;
-    }
-  }
+  const userRows = await queryPushTokenRowsWithFallback(userQueries);
 
-  if (!result) {
-    return [];
-  }
+  const deviceQueries = [
+    `SELECT DISTINCT push_token AS expo_push_token, push_platform, push_token_type, push_environment, preferred_language
+     FROM device_push_tokens
+     WHERE push_token IS NOT NULL
+       AND TRIM(push_token) <> ''`,
+    `SELECT DISTINCT push_token AS expo_push_token, push_platform, push_token_type, push_environment, NULL AS preferred_language
+     FROM device_push_tokens
+     WHERE push_token IS NOT NULL
+       AND TRIM(push_token) <> ''`,
+    `SELECT DISTINCT push_token AS expo_push_token, push_platform, NULL AS push_token_type, NULL AS push_environment, NULL AS preferred_language
+     FROM device_push_tokens
+     WHERE push_token IS NOT NULL
+       AND TRIM(push_token) <> ''`,
+  ];
 
-  return result.rows
-    .map((row: PushTokenRow) => mapPushTokenRow(row))
-    .filter(
-      (recipient: PushRecipient) =>
-        recipient.token.length > 0 && !isLegacyExpoToken(recipient.token)
-    );
+  const deviceRows = await queryPushTokenRowsWithFallback(deviceQueries);
+
+  const allRows = [...userRows, ...deviceRows];
+
+  return dedupeRecipients(
+    allRows
+      .map((row: PushTokenRow) => mapPushTokenRow(row))
+      .filter(
+        (recipient: PushRecipient) =>
+          recipient.token.length > 0 && !isLegacyExpoToken(recipient.token)
+      )
+  );
 }
 
 function buildVersionUpdateMessage(

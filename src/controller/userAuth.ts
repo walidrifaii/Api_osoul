@@ -313,114 +313,36 @@ export const SendOTPController = async (req: Request, res: Response) => {
   }
 };
 
-function parsePushPlatform(value: unknown): "ios" | "android" | null {
-  return value === "ios" || value === "android" ? value : null;
-}
-
-function parsePushTokenType(value: unknown): "apns" | "fcm" | null {
-  return value === "apns" || value === "fcm" ? value : null;
-}
-
-function parsePushEnvironment(value: unknown): "sandbox" | "production" | null {
-  return value === "sandbox" || value === "production" ? value : null;
-}
-
-function parsePreferredLanguage(value: unknown): "ar" | "en" {
-  if (typeof value !== "string") {
-    return "ar";
-  }
-  const normalized = value.trim().toLowerCase();
-  if (normalized === "en" || normalized.startsWith("en-") || normalized === "english") {
-    return "en";
-  }
-  return "ar";
-}
+import { validateAndParsePushTokenBody } from "../utils/pushTokenParsing";
 
 export const registerPushToken = async (req: Request, res: Response) => {
   const authReq = req as AuthRequest;
   const user = authReq.user as { user_id?: string } | undefined;
   const userId = user?.user_id;
-  const {
-    push_token,
-    push_platform,
-    push_token_type,
-    push_environment,
-    push_app_id,
-    preferred_language,
-    app_language,
-    language,
-  } = req.body;
-  const STANDALONE_APP_ID = "com.vesco.osoul";
+  const { device_id, app_version } = req.body;
 
   if (!userId) {
     res.status(401).json({ message: "Unauthorized" });
     return;
   }
 
-  if (!push_token || typeof push_token !== "string") {
-    res.status(400).json({ message: "push_token is required" });
-    return;
-  }
-
-  if (push_token.startsWith("ExponentPushToken[")) {
-    res.status(400).json({
-      message:
-        "Expo push tokens are no longer supported. Rebuild the Osoul app and log in again to register a Firebase/APNs token.",
+  const parsed = validateAndParsePushTokenBody(req.body);
+  if (!parsed.ok) {
+    res.status(parsed.status).json({
+      message: parsed.message,
+      ...(parsed.push_app_id ? { push_app_id: parsed.push_app_id } : {}),
     });
     return;
   }
 
-  if (push_app_id === "host.exp.exponent") {
-    res.status(400).json({
-      message:
-        "Push token must be registered from the Osoul app, not Expo Go.",
-    });
-    return;
-  }
-
-  if (
-    typeof push_app_id === "string" &&
-    push_app_id.length > 0 &&
-    push_app_id !== STANDALONE_APP_ID
-  ) {
-    res.status(400).json({
-      message:
-        "Push token must be registered from the Osoul app, not Expo Go or another app.",
-      push_app_id,
-    });
-    return;
-  }
-
-  let platform = parsePushPlatform(push_platform);
-  const tokenType = parsePushTokenType(push_token_type);
-  const environment = parsePushEnvironment(push_environment);
-  const preferredLanguage = parsePreferredLanguage(
-    preferred_language ?? app_language ?? language
-  );
-
-  if (!platform && tokenType === "apns") {
-    platform = "ios";
-  }
-
-  if (!platform && tokenType === "fcm") {
-    platform = "android";
-  }
-
-  if (!platform && push_app_id === STANDALONE_APP_ID) {
-    platform = "android";
-  }
-
-  // iOS + fcm is valid: Expo/Firebase on iOS returns an FCM registration token.
-  // Android + apns is not valid.
-  if (platform === "android" && tokenType === "apns") {
-    res.status(400).json({
-      message: "Android push tokens must use push_token_type fcm.",
-    });
-    return;
-  }
-
-  const resolvedTokenType =
-    tokenType ?? (platform === "ios" ? "fcm" : platform === "android" ? "fcm" : null);
+  const {
+    pushToken,
+    platform,
+    tokenType: resolvedTokenType,
+    environment,
+    preferredLanguage,
+    pushAppId,
+  } = parsed.data;
 
   try {
     const updateQueries = [
@@ -433,7 +355,7 @@ export const registerPushToken = async (req: Request, res: Response) => {
                   preferred_language = $5
               WHERE user_id = $6`,
         params: [
-          push_token.trim(),
+          pushToken,
           platform,
           resolvedTokenType,
           environment,
@@ -449,7 +371,7 @@ export const registerPushToken = async (req: Request, res: Response) => {
                   push_environment = $4
               WHERE user_id = $5`,
         params: [
-          push_token.trim(),
+          pushToken,
           platform,
           resolvedTokenType,
           environment,
@@ -458,11 +380,11 @@ export const registerPushToken = async (req: Request, res: Response) => {
       },
       {
         sql: "UPDATE users SET expo_push_token = $1, push_platform = $2 WHERE user_id = $3",
-        params: [push_token.trim(), platform, userId],
+        params: [pushToken, platform, userId],
       },
       {
         sql: "UPDATE users SET expo_push_token = $1 WHERE user_id = $2",
-        params: [push_token.trim(), userId],
+        params: [pushToken, userId],
       },
     ];
 
@@ -481,16 +403,111 @@ export const registerPushToken = async (req: Request, res: Response) => {
       throw new Error("Failed to update push token columns");
     }
 
+    if (typeof device_id === "string" && device_id.trim()) {
+      try {
+        await pool.query(
+          `INSERT INTO device_push_tokens (
+             device_id, push_token, push_platform, push_token_type,
+             push_environment, preferred_language, user_id, app_version,
+             last_opened_at, updated_at
+           )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+           ON CONFLICT (device_id) DO UPDATE SET
+             push_token = EXCLUDED.push_token,
+             push_platform = EXCLUDED.push_platform,
+             push_token_type = EXCLUDED.push_token_type,
+             push_environment = EXCLUDED.push_environment,
+             preferred_language = EXCLUDED.preferred_language,
+             user_id = EXCLUDED.user_id,
+             app_version = COALESCE(EXCLUDED.app_version, device_push_tokens.app_version),
+             last_opened_at = NOW(),
+             updated_at = NOW()`,
+          [
+            device_id.trim(),
+            pushToken,
+            platform,
+            resolvedTokenType,
+            environment,
+            preferredLanguage,
+            userId,
+            typeof app_version === "string" ? app_version.trim() : null,
+          ]
+        );
+      } catch (deviceError) {
+        console.warn(
+          "Device push token link on login failed:",
+          (deviceError as Error).message
+        );
+      }
+    }
+
     res.status(200).json({
       message: "Push token registered",
       push_platform: platform,
       push_token_type: resolvedTokenType,
       push_environment: environment,
       preferred_language: preferredLanguage,
-      push_app_id: typeof push_app_id === "string" ? push_app_id : null,
+      push_app_id: pushAppId,
     });
   } catch (error) {
     console.error("Push token registration error:", (error as Error).message);
     res.status(500).json({ message: "Failed to register push token" });
+  }
+};
+
+export const unregisterPushToken = async (req: Request, res: Response) => {
+  const authReq = req as AuthRequest;
+  const user = authReq.user as { user_id?: string } | undefined;
+  const userId = user?.user_id;
+  const { device_id } = req.body;
+
+  if (!userId) {
+    res.status(401).json({ message: "Unauthorized" });
+    return;
+  }
+
+  try {
+    const clearQueries = [
+      `UPDATE users
+       SET expo_push_token = NULL,
+           push_platform = NULL,
+           push_token_type = NULL,
+           push_environment = NULL
+       WHERE user_id = $1`,
+      `UPDATE users
+       SET expo_push_token = NULL, push_platform = NULL
+       WHERE user_id = $1`,
+      "UPDATE users SET expo_push_token = NULL WHERE user_id = $1",
+    ];
+
+    for (const sql of clearQueries) {
+      try {
+        await pool.query(sql, [userId]);
+        break;
+      } catch {
+        continue;
+      }
+    }
+
+    if (typeof device_id === "string" && device_id.trim()) {
+      try {
+        await pool.query(
+          `UPDATE device_push_tokens
+           SET user_id = NULL, updated_at = NOW()
+           WHERE device_id = $1 AND user_id = $2`,
+          [device_id.trim(), userId]
+        );
+      } catch (deviceError) {
+        console.warn(
+          "Device unlink on logout failed:",
+          (deviceError as Error).message
+        );
+      }
+    }
+
+    res.status(200).json({ message: "Push token unregistered" });
+  } catch (error) {
+    console.error("Push token unregister error:", (error as Error).message);
+    res.status(500).json({ message: "Failed to unregister push token" });
   }
 };

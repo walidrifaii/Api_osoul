@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { pool } from "../config/dp";
-import { canCreatePost } from "../utils/helper";
+import { canCreatePost, getAuthActor } from "../utils/helper";
 import {
   uploadBase64Image,
   uploadImageBuffer,
@@ -115,14 +115,18 @@ export const createPost = async (req: Request, res: Response) => {
       longitude,
     } = req.body;
 
+    const actor = getAuthActor(req);
+    if (!actor.userId) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    // Always create as the authenticated user (ignore spoofed body user_id).
+    user_id = actor.userId;
+
     if (isDirect === undefined || isDirect === null || isDirect === "") {
       isDirect = req.body.is_direct;
     }
 
-    if (!user_id) {
-      res.status(400).json({ error: "user_id is required" });
-      return;
-    }
     if (!caption || String(caption).trim().length < 10) {
       res.status(400).json({ error: "Caption must be at least 10 characters" });
       return;
