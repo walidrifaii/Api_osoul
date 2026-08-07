@@ -70,10 +70,67 @@ export async function canModeratePosts(actor: AuthActor): Promise<boolean> {
   return false;
 }
 
+function formatPhoneForWhatsAppNode(phoneDigits: string): string {
+  const format = (process.env.WHATSAPP_NODE_PHONE_FORMAT || "DIGITS").toUpperCase();
+  if (format === "E164") {
+    return phoneDigits.startsWith("+") ? phoneDigits : `+${phoneDigits}`;
+  }
+  return phoneDigits.replace(/\D/g, "");
+}
+
+function otpDeliveryPath(): string {
+  const delivery = (process.env.WHATSAPP_NODE_DELIVERY || "otp").toLowerCase();
+  if (delivery === "send-campaign") return "/api/otp/send-campaign";
+  return "/api/otp/send";
+}
+
+async function deliverOtpViaWhatsAppNode(phoneDigits: string, code: string) {
+  const baseUrl = (process.env.WHATSAPP_NODE_URL || "").replace(/\/$/, "");
+  const token = process.env.WHATSAPP_NODE_TOKEN;
+  const clientId = process.env.WHATSAPP_NODE_CLIENT_ID;
+  const timeoutSec = Number(process.env.WHATSAPP_NODE_TIMEOUT || 35);
+
+  if (!baseUrl || !token || !clientId) {
+    throw new Error(
+      "node_not_configured: set WHATSAPP_NODE_URL, WHATSAPP_NODE_TOKEN, WHATSAPP_NODE_CLIENT_ID"
+    );
+  }
+
+  const phone = formatPhoneForWhatsAppNode(phoneDigits);
+  const message = `Your verification code for Osoul App is ${code}. Valid for 5 minutes. Do not share this code.`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutSec * 1000);
+
+  try {
+    const res = await fetch(`${baseUrl}${otpDeliveryPath()}`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ phone, code, clientId, message }),
+      signal: controller.signal,
+    });
+
+    let payload: { ok?: boolean; error?: string } = {};
+    try {
+      payload = (await res.json()) as { ok?: boolean; error?: string };
+    } catch {
+      // non-JSON body
+    }
+
+    if (!res.ok || payload.ok === false) {
+      const detail = payload.error || `HTTP ${res.status}`;
+      throw new Error(`WhatsApp Node OTP failed: ${detail}`);
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export const sendOTP = async (phone: string) => {
   const normalizedPhone = normalizeQatarPhone(phone);
-  const sendPhone = normalizedPhone;
-  const Osoul = "447860042244";
   const CheckDail = "SELECT COUNT(*) AS count from otps WHERE phone=$1";
   try {
     if (isTestLoginPhone(normalizedPhone)) {
@@ -95,50 +152,16 @@ export const sendOTP = async (phone: string) => {
     if (otpCount >= 10) {
       return { limit: true };
     }
+
     const otp = crypto.randomInt(1000, 10000).toString();
     const hashedOTP = await bcrypt.hash(otp, 10);
+    const ttlSeconds = Number(process.env.OTP_TTL_SECONDS || 300);
 
-    const body = {
-      messages: [
-        {
-          from: Osoul,
-          to: sendPhone,
-          content: {
-            templateName: "whatsapp_otp",
-            templateData: {
-              body: {
-                placeholders: [otp],
-              },
-              buttons: [
-                {
-                  type: "URL",
-                  parameter: otp,
-                },
-              ],
-            },
-            language: "en_US",
-          },
-        },
-      ],
-    };
-
-    const api = process.env.INFOBIP_API_KEY;
-    const baseURL = process.env.INFOBIP_BASE_URL;
-    if (!baseURL) {
-      throw new Error(
-        "INFOBIP_BASE_URL is not defined in environment variables"
-      );
+    if (process.env.OTP_WHATSAPP_NODE_ENABLED !== "false") {
+      await deliverOtpViaWhatsAppNode(normalizedPhone, otp);
     }
-    const resInfo = await fetch(baseURL, {
-      method: "POST",
-      headers: {
-        Authorization: `App ${api}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-    const expiresAt = new Date(Date.now() + 60 * 1000);
 
+    const expiresAt = new Date(Date.now() + ttlSeconds * 1000);
     await pool.query(
       "INSERT INTO otps (phone, otp_hash, expires_at, used) VALUES ($1, $2, $3, false)",
       [normalizedPhone, hashedOTP, expiresAt]

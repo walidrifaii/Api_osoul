@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS device_push_tokens (
   push_token_type TEXT,
   push_environment TEXT,
   preferred_language TEXT DEFAULT 'ar',
-  user_id UUID REFERENCES users(user_id) ON DELETE SET NULL,
+  user_id TEXT REFERENCES users(user_id) ON DELETE SET NULL,
   app_version TEXT,
   last_opened_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
