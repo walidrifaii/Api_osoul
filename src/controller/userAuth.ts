@@ -155,9 +155,10 @@ export const registerUser = async (req: Request, res: Response) => {
 
 export const Login = async (req: Request, res: Response) => {
   const { user_phone } = req.body;
+  const normalizedPhone = normalizeQatarPhone(user_phone);
 
   // Input validation
-  if (!user_phone || !/^974\d{8}$/.test(user_phone)) {
+  if (!normalizedPhone || !/^974\d{8}$/.test(normalizedPhone)) {
     res
       .status(400)
       .json({ message: "Invalid phone format (must be 974 + 8 digits)", isValid: false });
@@ -166,22 +167,33 @@ export const Login = async (req: Request, res: Response) => {
 
   try {
     const query = "SELECT * from users WHERE user_phone = $1 AND pending=false";
-    const values = [user_phone];
-    const result = await pool.query(query, values);
+    const result = await pool.query(query, [normalizedPhone]);
     if ((result.rowCount ?? 0) > 0) {
-      await sendOTP(user_phone);
-      res.status(200).json({ message: "Login Successfully", isValid: true });
-    } else {
-      res.status(404).json({
-        message: "No user registered with this phone number",
+      const otpResult = await sendOTP(normalizedPhone);
+      res.status(200).json({
+        message: "Login Successfully",
+        isValid: true,
+        channel: otpResult.channel,
+      });
+      return;
+    }
+    res.status(404).json({
+      message: "No user registered with this phone number",
+      isValid: false,
+    });
+  } catch (err) {
+    const error = err as Error & { code?: string };
+    console.log("log in failed:", error.message);
+    if (error.code === "OTP_LIMIT") {
+      res.status(429).json({
+        message: error.message,
         isValid: false,
       });
+      return;
     }
-  } catch (err) {
-    console.log("log in failed:", (err as Error).message);
-    res.status(500).json({
-      message: "Login failed",
-      error: (err as Error).message,
+    res.status(502).json({
+      message: "Failed to send OTP via WhatsApp",
+      error: error.message,
       isValid: false,
     });
   }
