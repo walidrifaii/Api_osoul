@@ -82,46 +82,72 @@ export const registerUser = async (req: Request, res: Response) => {
     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
     RETURNING *;
   `;
-  const values = [
-    user_id,
-    user_phone,
-    full_name_en,
-    full_name_ar,
-    commercial_registeration,
-    company_name_en,
-    company_name_ar,
-    user_type,
-  ];
   try {
-    const tem = await pool.query(
-      "SELECT * FROM users WHERE user_phone=$1 AND pending=true",
-      [user_phone]
-    );
-    if (tem.rows.length > 0) {
-      sendOTP(user_phone);
-
-      res
-        .status(200)
-        .json({ message: "User Registered but still pending", isValid: true });
+    const normalizedPhone = normalizeQatarPhone(user_phone);
+    if (!/^974\d{8}$/.test(normalizedPhone)) {
+      res.status(400).json({
+        message: "Invalid phone format (must be 974 + 8 digits)",
+        isValid: false,
+      });
       return;
     }
-    const result = await pool.query(query, values);
+
+    const existing = await pool.query(
+      "SELECT user_id, pending FROM users WHERE user_phone=$1 LIMIT 1",
+      [normalizedPhone]
+    );
+
+    if (existing.rows.length > 0) {
+      if (existing.rows[0].pending === true) {
+        sendOTP(normalizedPhone);
+        res.status(200).json({
+          message: "User Registered but still pending",
+          isValid: true,
+        });
+        return;
+      }
+
+      // Fully registered (pending=false) — UNIQUE would reject INSERT anyway
+      res.status(409).json({
+        message: "Phone number already registered",
+        isValid: false,
+      });
+      return;
+    }
+
+    const result = await pool.query(query, [
+      user_id,
+      normalizedPhone,
+      full_name_en,
+      full_name_ar,
+      commercial_registeration,
+      company_name_en,
+      company_name_ar,
+      user_type,
+    ]);
     if ((result.rowCount ?? 0) > 0) {
-      sendOTP(user_phone);
+      sendOTP(normalizedPhone);
       res.status(200).json({ isValid: true });
       return;
-    } else {
-      console.log("User could not be registered");
-      res
-        .status(400)
-        .json({ message: "User could not be registered", isValid: false });
+    }
+
+    console.log("User could not be registered");
+    res
+      .status(400)
+      .json({ message: "User could not be registered", isValid: false });
+  } catch (err) {
+    const pgError = err as Error & { code?: string };
+    console.log("user reg error:", pgError.message);
+    if (pgError.code === "23505") {
+      res.status(409).json({
+        message: "Phone number already registered",
+        isValid: false,
+      });
       return;
     }
-  } catch (err) {
-    console.log("user reg error:", (err as Error).message);
     res.status(500).json({
       message: "Signup failed",
-      error: (err as Error).message,
+      error: pgError.message,
       isValid: false,
     });
   }
