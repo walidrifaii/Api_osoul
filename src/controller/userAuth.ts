@@ -305,7 +305,7 @@ export const verfiyUser = async (req: Request, res: Response) => {
     };
 
     const token = jwt.sign(data2Token, process.env.JWT_SECRET as string, {
-      expiresIn: "7d",
+      expiresIn: "1y",
     });
     res.status(200).json({
       message: "Log in Succeded and phone verfied",
