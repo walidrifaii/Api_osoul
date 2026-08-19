@@ -39,6 +39,7 @@ export const RegAdmin = async (req: Request, res: Response) => {
       admin,
       token,
     });
+    // test
   } catch (error) {
     console.error("Admin registration error:", (error as Error).message);
     res.status(500).json({ message: "Failed to register admin" });
