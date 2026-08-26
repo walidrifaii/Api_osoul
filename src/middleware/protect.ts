@@ -36,9 +36,17 @@ export const protect = (
     (req as AuthRequest).user = decoded;
     next();
   } catch (err) {
-    res
-      .status(401)
-      .json({ message: "Not authorized, token invalid", Authorized: false });
+    const error = err as Error & { name?: string };
+    const expired =
+      error.name === "TokenExpiredError" ||
+      /jwt expired/i.test(error.message || "");
+    res.status(401).json({
+      code: expired ? "TOKEN_EXPIRED" : "TOKEN_INVALID",
+      message: expired
+        ? "Not authorized, token expired"
+        : "Not authorized, token invalid",
+      Authorized: false,
+    });
     return;
   }
 };

@@ -43,9 +43,11 @@ export const registerUser = async (req: Request, res: Response) => {
 
   // Input validation
   if (!user_phone || !/^974\d{8}$/.test(user_phone)) {
-    res
-      .status(400)
-      .json({ message: "Invalid phone format (must be 974 + 8 digits)", isValid: false });
+    res.status(400).json({
+      code: "INVALID_PHONE",
+      message: "Invalid phone format (must be 974 + 8 digits)",
+      isValid: false,
+    });
     return;
   }
   if (!full_name_en || full_name_en.trim().length === 0) {
@@ -109,7 +111,8 @@ export const registerUser = async (req: Request, res: Response) => {
 
       // Fully registered (pending=false) — UNIQUE would reject INSERT anyway
       res.status(409).json({
-        message: "Phone number already registered",
+        code: "PHONE_EXISTS",
+        message: "Phone number already registered. Please log in.",
         isValid: false,
       });
       return;
@@ -140,7 +143,8 @@ export const registerUser = async (req: Request, res: Response) => {
     console.log("user reg error:", pgError.message);
     if (pgError.code === "23505") {
       res.status(409).json({
-        message: "Phone number already registered",
+        code: "PHONE_EXISTS",
+        message: "Phone number already registered. Please log in.",
         isValid: false,
       });
       return;
@@ -159,9 +163,11 @@ export const Login = async (req: Request, res: Response) => {
 
   // Input validation
   if (!normalizedPhone || !/^974\d{8}$/.test(normalizedPhone)) {
-    res
-      .status(400)
-      .json({ message: "Invalid phone format (must be 974 + 8 digits)", isValid: false });
+    res.status(400).json({
+      code: "INVALID_PHONE",
+      message: "Invalid phone format (must be 974 + 8 digits)",
+      isValid: false,
+    });
     return;
   }
 
@@ -178,6 +184,7 @@ export const Login = async (req: Request, res: Response) => {
       return;
     }
     res.status(404).json({
+      code: "PHONE_NOT_FOUND",
       message: "No user registered with this phone number",
       isValid: false,
     });
@@ -186,13 +193,15 @@ export const Login = async (req: Request, res: Response) => {
     console.log("log in failed:", error.message);
     if (error.code === "OTP_LIMIT") {
       res.status(429).json({
+        code: "OTP_LIMIT",
         message: error.message,
         isValid: false,
       });
       return;
     }
     res.status(502).json({
-      message: "Failed to send OTP via WhatsApp",
+      code: "OTP_SEND_FAILED",
+      message: error.message || "Failed to send OTP via WhatsApp",
       error: error.message,
       isValid: false,
     });
@@ -338,16 +347,32 @@ export const SendOTPController = async (req: Request, res: Response) => {
   const { phone } = req.body;
   const normalizedPhone = normalizeQatarPhone(phone);
   if (!/^974\d{8}$/.test(normalizedPhone)) {
-    res.status(400).json({ isSent: false, message: "Invalid phone format" });
+    res.status(400).json({
+      isSent: false,
+      code: "INVALID_PHONE",
+      message: "Invalid phone format",
+    });
     return;
   }
   try {
     await sendOTP(normalizedPhone);
     res.status(202).json({ isSent: true, message: "otp sent" });
   } catch (error) {
-    console.error("OTP send error:", (error as Error).message);
-    res.status(400).json({ isSent: false, message: "otp send failed" });
-    return;
+    const err = error as Error & { code?: string };
+    console.error("OTP send error:", err.message);
+    if (err.code === "OTP_LIMIT") {
+      res.status(429).json({
+        isSent: false,
+        code: "OTP_LIMIT",
+        message: err.message,
+      });
+      return;
+    }
+    res.status(400).json({
+      isSent: false,
+      code: "OTP_SEND_FAILED",
+      message: err.message || "otp send failed",
+    });
   }
 };
 
